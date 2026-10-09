@@ -71,7 +71,7 @@ const WINDOW_GLSL = /* glsl */`
 `;
 
 // Building kinds (aKind): drive floor height, bay width, window shape and light colour.
-export const KIND = { other: 0, office: 1, hotel: 2, residential: 3, retail: 4, civic: 4, heritage: 5, religious: 5, filler: 6, tile: 7, solid: 8 };
+export const KIND = { other: 0, office: 1, hotel: 2, residential: 3, retail: 4, civic: 4, heritage: 5, religious: 5, filler: 6, tile: 7, solid: 8, stone: 9 };
 
 const buildingTime = { value: 0 };
 
@@ -80,6 +80,7 @@ const buildingTime = { value: 0 };
 //  hotel       warm room-by-room windows with balcony fins, a few dark floors
 //  residential punched windows, warm / neutral, about half lit
 //  heritage    tall shuttered windows, warm, on colonial white walls
+//  stone       stone-clad office tower: punched windows in a granite grid, lit like offices
 //  filler      distant generic blocks: dim and plain so the landmarks read first
 //  tile        pitched clay-tile roof surfaces (no windows), solid: blank cladding washed by uplights
 // Roofs are a dark membrane, with a lit parapet edge on taller blocks.
@@ -105,6 +106,7 @@ export function buildingMaterial() {
           float roof = step(0.6, vWN.y);
           float k = floor(vKind + 0.5);
           float tall = step(45.0, vTop);
+          float isStone = float(k == 9.0);
           float isOffice = float(k == 1.0) + float(k == 0.0 || k == 4.0) * tall;
           float isHotel = float(k == 2.0);
           float isRes = float(k == 3.0) + float(k == 0.0 || k == 4.0) * (1.0 - tall);
@@ -117,8 +119,8 @@ export function buildingMaterial() {
           vec2 tg = normalize(vec2(-vWN.z, vWN.x) + 1e-5);
           float u = dot(vWPos.xz, tg);
           float v = vWPos.y;
-          float fh = isOffice * 4.0 + isHotel * 3.2 + isRes * 3.0 + isHer * 4.6 + isFill * 3.4;
-          float bay = isOffice * 1.6 + isHotel * 4.2 + isRes * 3.6 + isHer * 3.4 + isFill * 3.0;
+          float fh = isOffice * 4.0 + isHotel * 3.2 + isRes * 3.0 + isHer * 4.6 + isFill * 3.4 + isStone * 4.0;
+          float bay = isOffice * 1.6 + isHotel * 4.2 + isRes * 3.6 + isHer * 3.4 + isFill * 3.0 + isStone * 2.2;
           fh = max(fh, 3.0); bay = max(bay, 1.5);
           float fl = floor(v / fh), fv = fract(v / fh);
           float bx = floor(u / bay), bu = fract(u / bay);
@@ -130,7 +132,8 @@ export function buildingMaterial() {
           float oHotel = step(0.2, fv) * step(fv, 0.86) * step(0.1, bu) * step(bu, 0.9);
           float oRes = step(0.3, fv) * step(fv, 0.8) * step(0.22, bu) * step(bu, 0.78);
           float oHer = step(0.22, fv) * step(fv, 0.86) * step(0.32, bu) * step(bu, 0.68);
-          float open = isOffice * oOffice + isHotel * oHotel + isRes * oRes + isHer * oHer + isFill * oRes;
+          float oStone = step(0.3, fv) * step(fv, 0.86) * step(0.18, bu) * step(bu, 0.82);
+          float open = isOffice * oOffice + isHotel * oHotel + isRes * oRes + isHer * oHer + isFill * oRes + isStone * oStone;
 
           // which windows are lit: whole office floors, hotel rooms, flats
           float floorH = bhash(vec2(fl * 1.37 + face * 17.0, vSeed * 97.0));
@@ -141,24 +144,25 @@ export function buildingMaterial() {
           float litHotel = step(0.1, floorH) * step(0.32, roomH) * (0.55 + 0.45 * fract(roomH * 7.3));
           float litRes = step(0.5, roomH) * (0.5 + 0.5 * fract(roomH * 5.1));
           float litHer = step(0.42, roomH) * (0.7 + 0.3 * fract(roomH * 3.7));
-          float lit = isOffice * litOffice + isHotel * litHotel + isRes * litRes + isHer * litHer + isFill * litRes * 0.35;
+          float lit = (isOffice + isStone) * litOffice + isHotel * litHotel + isRes * litRes + isHer * litHer + isFill * litRes * 0.35;
           lit *= step(2.6, v) * step(v, vTop - 1.2);
 
           vec3 cool = vec3(0.72, 0.86, 1.0), warm = vec3(1.0, 0.66, 0.36), neutral = vec3(1.0, 0.85, 0.66);
           vec3 wc = isOffice * mix(cool, neutral, step(0.85, fract(floorH * 13.1)))
+                  + isStone * mix(neutral, cool, step(0.7, fract(floorH * 13.1)))
                   + isHotel * warm
                   + isRes * mix(warm, neutral, step(0.55, fract(roomH * 9.7)))
                   + (isHer + isFill) * mix(warm, neutral, 0.3);
           vec3 pattern = open * lit * wc * 1.05;
           // lobby / shopfront glow along the ground floor of towers and shops
-          float lobby = (isOffice + isHotel + float(k == 4.0)) * step(0.6, v) * step(v, 5.5) * step(0.1, bu);
+          float lobby = (isOffice + isHotel + isStone + float(k == 4.0)) * step(0.6, v) * step(v, 5.5) * step(0.1, bu);
           pattern += lobby * neutral * 0.55;
 
           // when a window cell shrinks to a few pixels, fade to its average glow (no shimmer)
           float px = max(fwidth(u / bay), fwidth(v / fh));
           float far = smoothstep(0.3, 0.9, px);
-          float avgLit = isOffice * 0.3 + isHotel * 0.42 + isRes * 0.3 + isHer * 0.3 + isFill * 0.08;
-          float avgOpen = isOffice * 0.66 + isHotel * 0.53 + isRes * 0.28 + isHer * 0.23 + isFill * 0.28;
+          float avgLit = isStone * 0.3 + isOffice * 0.3 + isHotel * 0.42 + isRes * 0.3 + isHer * 0.3 + isFill * 0.08;
+          float avgOpen = isStone * 0.38 + isOffice * 0.66 + isHotel * 0.53 + isRes * 0.28 + isHer * 0.23 + isFill * 0.28;
           vec3 avg = wc * avgLit * avgOpen * step(2.6, v) * 0.9;
           totalEmissiveRadiance += wall * glazed * mix(pattern, avg, far);
 
@@ -183,6 +187,8 @@ export function buildingMaterial() {
           vec3 ledc = 0.5 + 0.5 * cos(6.2831 * (uTime * 0.05 + vSeed + vec3(0.0, 0.33, 0.67)));
           totalEmissiveRadiance += strip * ledc * 1.4;
 
+          // stone towers: the crown (top quarter) is floodlit warm white
+          totalEmissiveRadiance += isStone * wall * vec3(0.95, 0.88, 0.74) * 0.55 * smoothstep(0.72, 0.8, v / max(vTop, 1.0));
           // blank cladding (landmark spines, plinths): washed by uplights from the base
           totalEmissiveRadiance += isSolid * wall * diffuseColor.rgb * (0.12 + 0.3 * (1.0 - smoothstep(0.0, max(vTop, 1.0), v)));
           // clay-tile roofs: keep their colour, catch a little warm street light

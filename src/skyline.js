@@ -91,6 +91,14 @@ function octagon(w) {
   return sh;
 }
 
+// square of side w with its corners cut back by c * w (a chamfered, faceted plan)
+function chamferedSquare(w, c) {
+  const h = w / 2, k = c * w, sh = new THREE.Shape();
+  [[-h + k, -h], [h - k, -h], [h, -h + k], [h, h - k], [h - k, h], [-h + k, h], [-h, h - k], [-h, -h + k]]
+    .forEach(([x, y], i) => (i ? sh.lineTo(x, y) : sh.moveTo(x, y)));
+  return sh;
+}
+
 function extrudeUp(shape, from, to) {
   const g = new THREE.ExtrudeGeometry(shape, { depth: to - from, bevelEnabled: false });
   g.rotateX(-Math.PI / 2);
@@ -126,6 +134,7 @@ function materials() {
     led: new THREE.MeshBasicMaterial({ color: new THREE.Color(1.2, 1.1, 0.95) }),
     cyan: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 1.3, 2.2) }),
     green: new THREE.MeshStandardMaterial({ color: 0x1f3d22, roughness: 1, emissive: 0x08160a }),
+    floodlit: new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.7, emissive: new THREE.Color(0.62, 0.56, 0.46) }),
   };
 }
 
@@ -652,7 +661,7 @@ function artScience(M) {
 // ---------------------------------------------------------------- CBD towers
 function cbd(city, M) {
   const g = new THREE.Group();
-  const glass = [], metal = [], led = [];
+  const glass = [], metal = [], led = [], flood = [];
   const tint = new THREE.Color(0.28, 0.3, 0.34);
   for (const t of LANDMARKS.cbd) {
     const b = byName(city, t.match);
@@ -660,18 +669,21 @@ function cbd(city, M) {
     const o = obb(b.p);
     const H = t.h;
     if (t.style === 'uob') {
-      // UOB Plaza: octagonal shaft, a rotated upper stage and the flat disc roof on short columns
-      const w = t.key === 'uob1' ? 44 : 36;
-      const shaft = extrudeUp(octagon(w), 0, H * 0.84);
-      const upper = extrudeUp(octagon(w * 0.86), H * 0.84, H * 0.95);
-      upper.rotateY(Math.PI / 8);
-      for (const [geo, s] of [[shaft, 0.41], [upper, 0.43]]) glass.push(tagBuilding(toWorld(geo, o.cx, o.cy, o.a), s, H, tint));
-      for (let k = 0; k < 8; k++) {
-        const a = k / 8 * Math.PI * 2;
-        metal.push(toWorld(new THREE.CylinderGeometry(0.8, 0.8, H * 0.05, 6).translate(Math.cos(a) * w * 0.32, H * 0.975, Math.sin(a) * w * 0.32), o.cx, o.cy, o.a));
-      }
-      metal.push(toWorld(new THREE.CylinderGeometry(w * 0.62, w * 0.6, 3, 40).translate(0, H + 1.5, 0), o.cx, o.cy, o.a));
-      led.push(toWorld(new THREE.TorusGeometry(w * 0.62, 0.35, 4, 48).rotateX(Math.PI / 2).translate(0, H + 0.2, 0), o.cx, o.cy, o.a));
+      // UOB Plaza: granite-clad square shafts with chamfered corners, stepping up through faceted
+      // tiers (alternately rotated 45 degrees) to a small round crown; the crown is floodlit
+      const w = t.key === 'uob1' ? 46 : 38;
+      const stone = new THREE.Color(0.36, 0.31, 0.26);
+      const tiers = [
+        [0, 0.76, 1, 0.2, 0], [0.76, 0.84, 0.88, 0.32, Math.PI / 4], [0.84, 0.91, 0.72, 0.2, 0],
+        [0.91, 0.96, 0.56, 0.32, Math.PI / 4], [0.96, 0.985, 0.4, 0.2, 0],
+      ];
+      tiers.forEach(([y0, y1, s, ch, rot], k) => {
+        const geo = extrudeUp(chamferedSquare(w * s, ch), H * y0, H * y1).rotateY(rot);
+        // one facade for every tier (windows continue into the crown); the shader floodlights the top
+        glass.push(tagBuilding(toWorld(geo, o.cx, o.cy, o.a), 0.41 + (t.key === 'uob1' ? 0 : 0.2), H, stone, KIND.stone));
+      });
+      flood.push(toWorld(new THREE.CylinderGeometry(w * 0.17, w * 0.19, H * 0.03, 32).translate(0, H * 0.985 + H * 0.015, 0), o.cx, o.cy, o.a));
+      led.push(toWorld(new THREE.TorusGeometry(w * 0.18, 0.3, 4, 40).rotateX(Math.PI / 2).translate(0, H + 0.3, 0), o.cx, o.cy, o.a));
     } else if (t.style === 'ocbc') {
       // OCBC Centre, "the calculator": a slab between two half-round service cores
       const len = 44, wid = 21;
@@ -695,6 +707,7 @@ function cbd(city, M) {
   if (glass.length) g.add(new THREE.Mesh(mergeGeometries(glass), M.glass));
   if (metal.length) g.add(new THREE.Mesh(mergeGeometries(metal.map(x => (x.index ? x.toNonIndexed() : x))), M.metal));
   if (led.length) g.add(new THREE.Mesh(mergeGeometries(led.map(x => (x.index ? x.toNonIndexed() : x))), M.led));
+  if (flood.length) g.add(new THREE.Mesh(mergeGeometries(flood.map(x => (x.index ? x.toNonIndexed() : x))), M.floodlit));
   return g;
 }
 
