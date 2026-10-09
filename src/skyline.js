@@ -134,6 +134,9 @@ function materials() {
     led: new THREE.MeshBasicMaterial({ color: new THREE.Color(1.2, 1.1, 0.95) }),
     cyan: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 1.3, 2.2) }),
     green: new THREE.MeshStandardMaterial({ color: 0x1f3d22, roughness: 1, emissive: 0x08160a }),
+    floodWhite: new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.7, emissive: new THREE.Color(0.46, 0.45, 0.43) }),
+    slate: new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.8, emissive: 0x0c0d10 }),
+    cream: new THREE.MeshStandardMaterial({ color: COLORS.fullertonCream, roughness: 0.8, emissive: new THREE.Color(0.36, 0.28, 0.16) }),
     floodlit: new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.7, emissive: new THREE.Color(0.62, 0.56, 0.46) }),
   };
 }
@@ -497,6 +500,25 @@ function esplanade(domes, M) {
 }
 
 // ---------------------------------------------------------------- the Padang
+function pointIn(x, y, r) {
+  let ins = false;
+  for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) {
+    if ((r[i + 1] > y) !== (r[j + 1] > y) && x < (r[j] - r[i]) * (y - r[i + 1]) / (r[j + 1] - r[i + 1]) + r[i]) ins = !ins;
+  }
+  return ins;
+}
+
+// a flat ground polygon built in OSM (x, y) and flipped into scene (x, -y): make it face up
+function fixUp(g) {
+  g.computeVertexNormals();
+  if (g.attributes.normal.getY(0) < 0) {
+    const idx = g.index.array;
+    for (let i = 0; i < idx.length; i += 3) [idx[i + 1], idx[i + 2]] = [idx[i + 2], idx[i + 1]];
+    g.computeVertexNormals();
+  }
+  return g;
+}
+
 function columns(geos, n, len, h, r, x0, z, y0 = 0) {
   for (let k = 0; k < n; k++) {
     const x = x0 - len / 2 + (k + 0.5) * len / n;
@@ -524,16 +546,16 @@ function padang(city, M, lm) {
   const pad = lm || { x: -682, y: 78 };
   let seed = 7;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const white = [], dark = [], lit = [], copper = [], roof = [], glassBox = [];
+  const white = [], dark = [], lit = [], copper = [], roof = [], glassBox = [], led = [], slate = [], cream = [], bright = [];
 
   const place = (b, build) => {
     if (!b) return;
     const o = obb(b.p);
     const a = facing(o, pad.x, pad.y);   // local +z toward the Padang
-    const local = { white: [], dark: [], lit: [], copper: [], roof: [], glassBox: [] };
-    build(o, local);
+    const local = { white: [], dark: [], lit: [], copper: [], roof: [], glassBox: [], led: [], slate: [], cream: [] };
+    build(o, local, a);
     for (const [k, list] of Object.entries(local)) {
-      for (const geo of list) ({ white, dark, lit, copper, roof, glassBox })[k].push(toWorld(geo, o.cx, o.cy, a));
+      for (const geo of list) ({ white, dark, lit, copper, roof, glassBox, led, slate, cream })[k].push(toWorld(geo, o.cx, o.cy, a));
     }
   };
 
@@ -577,8 +599,16 @@ function padang(city, M, lm) {
     L.white.push(new THREE.BoxGeometry(len, 8, wid + 6).translate(0, 4, 0));
     L.glassBox.push(new THREE.BoxGeometry(len * 0.94, h - 16, wid * 0.94).translate(0, 8 + (h - 16) / 2, 0));
     for (let x = -len / 2 + 2; x <= len / 2 - 2; x += 3.2) L.white.push(new THREE.BoxGeometry(0.35, h - 16, wid).translate(x, 8 + (h - 16) / 2, 0));
-    L.white.push(new THREE.CylinderGeometry(2.5, 2.5, 8, 12).translate(0, h - 4, 0));
-    L.white.push(new THREE.CylinderGeometry(Math.min(len, wid) * 0.62, Math.min(len, wid) * 0.55, 4.5, 48).translate(0, h + 1.5, 0));
+    // the "saucer": a lens-shaped disc on a short stem, with the glass viewing drum on top
+    const R = Math.min(len, wid) * 0.66;
+    L.white.push(new THREE.CylinderGeometry(3, 3, 9, 16).translate(0, h - 4.5, 0));
+    const lens = [];
+    for (let k = 0; k <= 12; k++) { const t = k / 12; lens.push(new THREE.Vector2(R * Math.sin(t * Math.PI / 2), -2.4 * Math.cos(t * Math.PI / 2))); }
+    for (let k = 1; k <= 12; k++) { const t = k / 12; lens.push(new THREE.Vector2(R * Math.cos(t * Math.PI / 2), 1.6 * Math.sin(t * Math.PI / 2))); }
+    L.white.push(new THREE.LatheGeometry(lens, 64).translate(0, h + 1.8, 0));
+    L.glassBox.push(new THREE.CylinderGeometry(R * 0.36, R * 0.36, 6, 40).translate(0, h + 6.4, 0));
+    L.white.push(new THREE.CylinderGeometry(R * 0.38, R * 0.38, 0.6, 40).translate(0, h + 9.6, 0));
+    L.led.push(new THREE.TorusGeometry(R * 0.995, 0.25, 4, 96).rotateX(Math.PI / 2).translate(0, h + 1.8, 0));
   });
 
   // Singapore Cricket Club: two-storey pavilion, verandah on the Padang side, red tiled roof
@@ -591,8 +621,113 @@ function padang(city, M, lm) {
     windowRows(L.dark, L.lit, len, wid, h, 2, rnd);
   });
 
+
+  // National Gallery: the metal roof "veil" that links the Old Supreme Court and City Hall
+  const osc = byName(city, cfg.oldSupremeCourt.match), ch = byName(city, cfg.cityHall.match);
+  if (osc && ch) {
+    const A = centroid(osc.p), B = centroid(ch.p), mid = A.clone().add(B).multiplyScalar(0.5);
+    const ang = Math.atan2(B.y - A.y, B.x - A.x);
+    const veil = new THREE.BoxGeometry(A.distanceTo(B) * 0.42, 0.5, 60).translate(0, cfg.cityHall.h + 4.5, 0);
+    led.push(toWorld(new THREE.BoxGeometry(A.distanceTo(B) * 0.42, 0.2, 0.4).translate(0, cfg.cityHall.h + 4.2, 30), mid.x, mid.y, ang));
+    cream.push(toWorld(veil, mid.x, mid.y, ang));
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      white.push(toWorld(new THREE.CylinderGeometry(0.5, 0.6, cfg.cityHall.h + 4.5, 8).translate(sx * A.distanceTo(B) * 0.18, (cfg.cityHall.h + 4.5) / 2, sz * 26), mid.x, mid.y, ang));
+    }
+  }
+
+  // St Andrew's Cathedral: white Gothic nave and transepts under slate roofs, the west tower and
+  // its tall octagonal spire with corner pinnacles, lancet windows lit from inside
+  const sac = byName(city, cfg.standrews.match);
+  if (sac) {
+    const o = obb(sac.p);
+    // spire at the south-west end of the long axis
+    const flip = Math.cos(o.a) + Math.sin(o.a) > 0 ? 0 : Math.PI;   // local -x is the south-west end
+    const L = { white: [], dark: [], lit: [], slate: [] };
+    const len = o.len * 0.92, nw = Math.min(o.wid * 0.42, 22), wh = 15;
+    L.white.push(new THREE.BoxGeometry(len, wh, nw).translate(0, wh / 2, 0));
+    L.slate.push(prism(len + 1, 8, nw + 2).translate(0, wh, 0));
+    const tx = len * 0.12;
+    L.white.push(new THREE.BoxGeometry(14, wh, o.wid * 0.85).translate(tx, wh / 2, 0));
+    L.slate.push(prism(o.wid * 0.85 + 1, 8, 16).rotateY(Math.PI / 2).translate(tx, wh, 0));
+    // west tower and spire
+    const sx = -len / 2 - 4;
+    L.white.push(new THREE.BoxGeometry(10, 32, 10).translate(sx, 16, 0));
+    L.white.push(new THREE.ConeGeometry(4.6, 30, 8).translate(sx, 32 + 15, 0));
+    for (const [px, pz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      L.white.push(new THREE.ConeGeometry(0.9, 7, 4).translate(sx + px * 4.4, 32 + 3.5, pz * 4.4));
+    }
+    // buttresses and lit lancet windows along the nave
+    for (let x = -len / 2 + 5; x < len / 2 - 3; x += 5.5) {
+      for (const s2 of [-1, 1]) {
+        L.white.push(new THREE.BoxGeometry(1.2, wh * 0.85, 1.6).translate(x, wh * 0.42, s2 * (nw / 2 + 0.6)));
+        L.lit.push(new THREE.BoxGeometry(1.4, 7, 0.3).translate(x + 2.7, 7, s2 * (nw / 2 + 0.1)));
+      }
+    }
+    L.lit.push(new THREE.BoxGeometry(0.3, 6, 3).translate(sx - 5.1, 12, 0));   // west door / window
+    for (const [k, list] of Object.entries(L)) {
+      for (const geo of list) ({ white: bright, dark, lit, slate })[k].push(toWorld(geo.rotateY(flip), o.cx, o.cy, o.a));
+    }
+  }
+
+  // The Fullerton Hotel: long cream neo-classical block, giant Doric colonnades on every face,
+  // cornice and attic, a rooftop lantern; floodlit warm at night
+  const ful = byName(city, cfg.fullerton.match);
+  if (ful) {
+    const o = obb(ful.p), h = cfg.fullerton.h;
+    const len = o.len * 0.96, wid = o.wid * 0.94;
+    const C = [];
+    C.push(new THREE.BoxGeometry(len, h - 3, wid).translate(0, (h - 3) / 2, 0));
+    C.push(new THREE.BoxGeometry(len + 1.6, 1.4, wid + 1.6).translate(0, h - 3.6, 0));     // cornice
+    C.push(new THREE.BoxGeometry(len - 6, 3, wid - 6).translate(0, h - 1.5, 0));          // attic
+    C.push(new THREE.BoxGeometry(len + 0.8, 6, wid + 0.8).translate(0, 3, 0));             // rusticated base
+    for (const s2 of [-1, 1]) {
+      columns(C, Math.round(len / 4.4), len * 0.86, h - 13, 0.75, 0, s2 * (wid / 2 + 1), 7);
+      const cw = [];
+      columns(cw, Math.round(wid / 4.4), wid * 0.8, h - 13, 0.75, 0, s2 * (len / 2 + 1), 7);
+      cw.forEach(g2 => C.push(g2.rotateY(Math.PI / 2)));
+    }
+    C.push(new THREE.BoxGeometry(8, 5, 8).translate(0, h + 2.5, 0));
+    C.push(new THREE.CylinderGeometry(0.15, 0.15, 10, 5).translate(0, h + 10, 0));
+    const W = [], Lt = [];
+    windowRows(W, Lt, len, wid, h - 3, 4, rnd);
+    const wr = [], lr = [];
+    windowRows(wr, lr, wid, len, h - 3, 4, rnd);
+    wr.forEach(g2 => W.push(g2.rotateY(Math.PI / 2)));
+    lr.forEach(g2 => Lt.push(g2.rotateY(Math.PI / 2)));
+    for (const geo of C) cream.push(toWorld(geo, o.cx, o.cy, o.a));
+    for (const geo of W) dark.push(toWorld(geo, o.cx, o.cy, o.a));
+    for (const geo of Lt) lit.push(toWorld(geo, o.cx, o.cy, o.a));
+  }
+
+  // Singapore Recreation Club: two white storeys under grey hipped roofs, a central pediment
+  // with green trim over a columned porch facing the Padang
+  place(byName(city, cfg.recreationClub.match), (o, L) => {
+    const h = 9, len = o.len * 0.9, wid = o.wid * 0.7;
+    L.white.push(new THREE.BoxGeometry(len, h, wid).translate(0, h / 2, 0));
+    L.slate.push(prism(len * 0.62, 6, wid + 2).translate(0, h, 0));
+    for (const s2 of [-1, 1]) L.slate.push(prism(wid * 0.9, 5, len * 0.22).rotateY(Math.PI / 2).translate(s2 * len * 0.38, h, 0));
+    const ped = new THREE.Shape();
+    ped.moveTo(-9, 0); ped.lineTo(9, 0); ped.lineTo(0, 5); ped.lineTo(-9, 0);
+    L.white.push(new THREE.ExtrudeGeometry(ped, { depth: 1.2, bevelEnabled: false }).translate(0, h, wid / 2 + 3));
+    L.led.push(new THREE.BoxGeometry(18.5, 0.25, 0.25).translate(0, h + 0.1, wid / 2 + 4.3));
+    columns(L.white, 6, 18, h - 1, 0.55, 0, wid / 2 + 3.6);
+    windowRows(L.dark, L.lit, len, wid, h, 2, rnd);
+  });
+
+  // the Padang: a floodlit lawn with the cricket square and a white boundary rope
+  const lawnRing = (city.parks || []).find(r => pointIn(pad.x, pad.y, r));
+  if (lawnRing) {
+    const sh = new THREE.Shape(Array.from({ length: lawnRing.length / 2 }, (_, i) => new THREE.Vector2(lawnRing[i * 2], lawnRing[i * 2 + 1])));
+    const lawn = new THREE.ShapeGeometry(sh).rotateX(-Math.PI / 2).translate(0, 0.05, 0);
+    g.add(new THREE.Mesh(fixUp(lawn), new THREE.MeshStandardMaterial({ color: 0x2f5f2a, roughness: 0.95, emissive: new THREE.Color(0.02, 0.07, 0.025) })));
+    const sq = new THREE.PlaneGeometry(22, 4).rotateX(-Math.PI / 2).rotateY(-pad.dir).translate(pad.x + Math.cos(pad.dir) * 40, 0.08, -(pad.y + Math.sin(pad.dir) * 40));
+    g.add(new THREE.Mesh(sq, new THREE.MeshStandardMaterial({ color: 0x8d7d58, roughness: 1, emissive: 0x1a160c })));
+    g.add(new THREE.Mesh(new THREE.TorusGeometry(62, 0.12, 3, 96).rotateX(Math.PI / 2).translate(pad.x + Math.cos(pad.dir) * 40, 0.15, -(pad.y + Math.sin(pad.dir) * 40)), M.led));
+  }
+
   const add = (list, mat) => { if (list.length) g.add(new THREE.Mesh(mergeGeometries(list.map(x => (x.index ? x.toNonIndexed() : x)).map(x => { if (x.attributes.uv) x.deleteAttribute('uv'); return x; })), mat)); };
   add(white, M.heritage); add(dark, M.heritageDark); add(lit, M.windowLit); add(copper, M.copper); add(roof, M.roof); add(glassBox, M.litGlass);
+  add(led, M.led); add(slate, M.slate); add(cream, M.cream); add(bright, M.floodWhite);
   return g;
 }
 
@@ -853,7 +988,7 @@ export function hiddenBuilding(name) {
   const pats = [...LANDMARKS.mbs.replaces, ...LANDMARKS.pit.replaces, ...LANDMARKS.extraHidden];
   if (pats.some(p => p.test(name))) return true;
   const p = LANDMARKS.padang;
-  if ([p.cityHall, p.oldSupremeCourt, p.newSupremeCourt, p.cricketClub].some(x => x.match === name)) return true;
+  if ([p.cityHall, p.oldSupremeCourt, p.newSupremeCourt, p.cricketClub, p.recreationClub, p.standrews, p.fullerton].some(x => x.match === name)) return true;
   return LANDMARKS.cbd.some(t => t.match === name && t.style !== 'crown');
 }
 

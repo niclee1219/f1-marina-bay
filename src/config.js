@@ -7,7 +7,8 @@ export const COLORS = {
   lampWarm: [2.4, 1.55, 0.75],   // HDR sodium lamps on the bridges (bloom picks these up)
   heritageWhite: 0xe9e4d8,       // floodlit colonial buildings around the Padang
   copperDome: 0x5f9c86,          // Old Supreme Court dome
-  terracotta: 0x8a3b2a,          // Singapore Cricket Club roof
+  terracotta: 0x8a3b2a,          // Singapore Cricket Club roof, shophouse clay tiles
+  fullertonCream: 0xd9c9a4,      // The Fullerton Hotel's granite / cream render
 };
 
 // Trackside sponsor wordmarks. Drawn procedurally as text + simple vector marks (no logo files).
@@ -60,6 +61,9 @@ export const LANDMARKS = {
     oldSupremeCourt: { match: 'Old Supreme Court', h: 24, dome: 46 },
     newSupremeCourt: { match: 'Supreme Court of Singapore', h: 64 },
     cricketClub: { match: 'Singapore Cricket Club', h: 14 },
+    recreationClub: { match: 'Singapore Recreation Club' },
+    standrews: { match: "Saint Andrew's Cathedral" },
+    fullerton: { match: 'The Fullerton Hotel', h: 25 },
   },
   cbd: [
     { key: 'uob1', match: 'UOB Plaza Tower 1', h: 280, style: 'uob' },
