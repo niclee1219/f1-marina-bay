@@ -252,8 +252,8 @@ export class UI {
       b.addEventListener('click', () => { b.classList.toggle('on'); this.h.toggle(id, b.classList.contains('on')); });
     }
     $('#fs').addEventListener('click', () => {
-      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
-      else document.exitFullscreen?.();
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.()?.catch(() => {});
+      else document.exitFullscreen?.()?.catch(() => {});
     });
     $('#help-btn').addEventListener('click', () => $('#help').classList.toggle('show'));
     $('#help').addEventListener('click', () => $('#help').classList.remove('show'));
