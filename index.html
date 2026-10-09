@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Marina Bay Night Race</title>
+  <meta name="description" content="Interactive 3D replay of the 2025 Singapore Grand Prix on the Marina Bay Street Circuit, driven by real car telemetry." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,400;0,600;0,700;0,900;1,900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="labels"></div>
+
+  <!-- loading: five red lights -->
+  <div id="loader">
+    <div class="ld-inner">
+      <div class="ld-brand"><span class="slash"></span>SINGAPORE GRAND PRIX <em>2025</em></div>
+      <div class="lights">
+        <div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div>
+      </div>
+      <div class="ld-status" id="ld-status">Loading telemetry…</div>
+    </div>
+  </div>
+
+  <header id="hud-top">
+    <div class="brand">
+      <span class="slash"></span>
+      <div>
+        <div id="ev-title" class="ev-title"></div>
+        <div id="ev-sub" class="ev-sub"></div>
+      </div>
+    </div>
+    <div class="lapbox">
+      <span class="lbl">LAP</span><span id="lap-now" class="now">—</span><span class="of">/</span><span id="lap-total" class="tot"></span>
+    </div>
+    <div id="flag" class="flag" data-flag="GREEN">GREEN</div>
+  </header>
+
+  <aside id="tower" aria-label="Timing tower">
+    <div class="tower-head">
+      <span class="th-title">RACE</span>
+      <button id="gap-toggle" class="gap-toggle" title="Toggle interval / gap to leader">INTERVAL</button>
+      <button id="tower-collapse" class="tower-collapse" aria-label="Collapse timing tower">▾</button>
+    </div>
+    <div id="tower-list" class="tower-list"></div>
+  </aside>
+
+  <aside id="side">
+    <div class="panel mm-panel">
+      <svg id="minimap" aria-label="Track map"></svg>
+      <div id="wx" class="wx"></div>
+    </div>
+    <div id="card" class="panel card">
+      <div class="card-head">
+        <div id="card-num" class="num"></div>
+        <div class="who">
+          <div id="card-first" class="first"></div>
+          <div id="card-last" class="last"></div>
+          <div id="card-team" class="teamname"></div>
+        </div>
+        <div id="c-pos" class="cpos"></div>
+      </div>
+      <div class="gauge">
+        <svg viewBox="0 0 120 70" class="arc"><path d="M12 64 A50 50 0 0 1 108 64" class="arc-bg"/><path id="c-arc" d="M12 64 A50 50 0 0 1 108 64" class="arc-fg"/></svg>
+        <div class="spd"><span id="c-speed">0</span><small>KM/H</small></div>
+        <div class="gear"><small>GEAR</small><span id="c-gear">N</span></div>
+        <div id="c-drs" class="drs">DRS</div>
+      </div>
+      <div class="pedals">
+        <div class="ped"><small>THR</small><div class="bar"><i id="c-thr" class="thr"></i></div></div>
+        <div class="ped"><small>BRK</small><div class="bar"><i id="c-brk" class="brk"></i></div></div>
+      </div>
+      <div class="kv"><span>Lap</span><b id="c-lap"></b></div>
+      <div class="kv"><span>Tyre</span><b id="c-tyre" class="tyreline"></b></div>
+      <div class="kv"><span>Pit stops</span><b id="c-stops"></b></div>
+      <div class="kv"><span>Last lap</span><b id="c-last" class="v"></b></div>
+      <div class="kv"><span>Personal best</span><b id="c-best"></b></div>
+      <div class="sectors"><span id="c-s1" class="sec"></span><span id="c-s2" class="sec"></span><span id="c-s3" class="sec"></span></div>
+    </div>
+  </aside>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <footer id="dock">
+    <div class="transport">
+      <button id="back" class="ic" aria-label="Back 10 seconds" title="Back 10 s (←)">
+        <svg viewBox="0 0 24 24"><path d="M11 6 4 12l7 6V6zm9 0-7 6 7 6V6z"/></svg></button>
+      <button id="play" class="ic play" aria-label="Play" title="Play / pause (space)">
+        <svg class="i-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg></button>
+      <button id="fwd" class="ic" aria-label="Forward 10 seconds" title="Forward 10 s (→)">
+        <svg viewBox="0 0 24 24"><path d="M13 6v12l7-6-7-6zM4 6v12l7-6-7-6z"/></svg></button>
+      <div class="time"><span id="clock">0:00</span><span id="local" class="local"></span></div>
+    </div>
+    <div id="scrub" class="scrub">
+      <div class="scrub-track"><div id="scrub-fill" class="scrub-fill"></div></div>
+      <div id="scrub-ticks" class="scrub-ticks"></div>
+      <div id="scrub-hover" class="scrub-hover"></div>
+    </div>
+    <div class="opts">
+      <div id="speeds" class="seg" aria-label="Playback speed"></div>
+      <div id="cams" class="seg" aria-label="Camera"></div>
+      <div class="seg toggles">
+        <button id="t-labels" class="on" title="Driver labels">Labels</button>
+        <button id="t-trails" class="on" title="Light trails">Trails</button>
+        <button id="t-drs" class="on" title="DRS zones">DRS</button>
+        <button id="t-reflect" class="on" title="Water reflections">Reflections</button>
+      </div>
+      <button id="help-btn" class="ic small" aria-label="Help" title="Keyboard shortcuts">?</button>
+      <button id="fs" class="ic small" aria-label="Fullscreen" title="Fullscreen">
+        <svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4z"/></svg></button>
+    </div>
+  </footer>
+
+  <div id="help" class="help">
+    <div class="help-card">
+      <h3>Controls</h3>
+      <p><kbd>Space</kbd> play / pause · <kbd>←</kbd><kbd>→</kbd> seek 10 s · <kbd>↑</kbd><kbd>↓</kbd> change driver</p>
+      <p><kbd>1</kbd>–<kbd>5</kbd> camera: Free, Broadcast, Chase, Onboard, Helicopter · <kbd>F</kbd> follow focused car in Free cam</p>
+      <p>Click a driver in the tower, the map or the 3D label to focus them. Drag to orbit, scroll to zoom, right-drag to pan.</p>
+      <p class="src">Positions &amp; telemetry: OpenF1 (2025 Singapore GP race, ~3.7 Hz car location). Buildings, water &amp; parks: © OpenStreetMap contributors. Corner numbering: MultiViewer circuit data. Unofficial fan visualisation.</p>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
