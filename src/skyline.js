@@ -53,7 +53,8 @@ function sweep(spine, ring = 10) {
       const t = k / ring * Math.PI * 2;
       const c = Math.cos(t), sn = Math.sin(t);
       const a = Math.sign(c) * Math.pow(Math.abs(c), 0.7) * s.w / 2;
-      const b = Math.sign(sn) * Math.pow(Math.abs(sn), 0.7) * s.h / 2;
+      // camber: bend the section into a shallow cup (a petal shell), deepest on the centre line
+      const b = Math.sign(sn) * Math.pow(Math.abs(sn), 0.7) * s.h / 2 + (s.cam || 0) * (1 - Math.pow(2 * a / s.w, 2));
       pos.push(s.p.x + s.side.x * a + s.nrm.x * b, s.p.y + s.side.y * a + s.nrm.y * b, s.p.z + s.side.z * a + s.nrm.z * b);
     }
   }
@@ -520,37 +521,59 @@ function padang(city, M, lm) {
 }
 
 // ---------------------------------------------------------------- ArtScience Museum
-// Ten "fingers" of a lotus rising from a round base, each a curved, tapering shell.
+// A lotus of ten "fingers" over a lily pond: broad cupped shells that flare out of a central bowl
+// and sweep up into crescents of different heights, each ending in a blunt tip with a glass
+// skylight. The bowl stands on raking dark columns.
 function artScience(M) {
   const cfg = LANDMARKS.artScience;
   const g = new THREE.Group();
-  const geos = [], tips = [];
-  const base = new THREE.CylinderGeometry(19, 10, 12, 40).translate(0, 8, 0);
-  geos.push(base.toNonIndexed());
-  geos.push(new THREE.CylinderGeometry(4.5, 5.5, 4, 16).translate(0, 2, 0).toNonIndexed());
-  for (let k = 0; k < cfg.petals; k++) {
-    const a = k / cfg.petals * Math.PI * 2;
-    const tall = 0.62 + 0.38 * (0.5 + 0.5 * Math.cos(a - 0.6)) * (k % 2 ? 0.86 : 1);
-    const radial = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
-    const side = new THREE.Vector3(-Math.sin(a), 0, Math.cos(a));
-    const spine = [];
-    for (let j = 0; j <= 10; j++) {
-      const u = j / 10;
-      // fingers splay out and up from the bowl; broad all the way to a rounded tip
-      const r = 9 + 22 * u + 4 * u * u;
-      const y = 9 + cfg.h * tall * Math.pow(u, 1.35);
-      const p = radial.clone().multiplyScalar(r).setY(y);
-      const tan = radial.clone().multiplyScalar(22 + 8 * u).setY(cfg.h * tall * 1.35 * Math.pow(Math.max(u, 0.03), 0.35)).normalize();
-      const nrm = new THREE.Vector3().crossVectors(side, tan).normalize();
-      const w = (u > 0.94 ? Math.sqrt(Math.max(0, 1 - Math.pow((u - 0.94) / 0.06, 2))) : 1) * (9 + 16 * u * (1.25 - u)) + 0.5;
-      spine.push({ p, side, nrm, w, h: 4.2 - 2.4 * u });
-    }
-    geos.push(sweep(spine).toNonIndexed());
-    const tip = spine[spine.length - 1].p;
-    tips.push(new THREE.SphereGeometry(1.4, 8, 6).translate(tip.x, tip.y + 0.6, tip.z));
+  const shells = [], glass = [], dark = [];
+  const y0 = 13;                       // underside of the bowl / spring line of the fingers
+  // the bowl: a shallow lathe from the column heads up to the finger roots
+  const bowl = [];
+  for (let k = 0; k <= 10; k++) {
+    const t = k / 10;
+    bowl.push(new THREE.Vector2(4 + 9 * Math.sin(t * Math.PI / 2), y0 - 5 + 7 * (1 - Math.cos(t * Math.PI / 2))));
   }
-  g.add(new THREE.Mesh(mergeGeometries(geos.map(x => { if (x.attributes.uv) x.deleteAttribute('uv'); return x; })), M.white));
-  g.add(new THREE.Mesh(mergeGeometries(tips), M.led));
+  shells.push(new THREE.LatheGeometry(bowl, 40));
+  shells.push(new THREE.CylinderGeometry(13.2, 13.2, 1.2, 40).translate(0, y0 + 2.4, 0));
+  // raking columns from the pond to the bowl
+  for (let k = 0; k < 9; k++) {
+    const a = k / 9 * Math.PI * 2 + 0.2;
+    const foot = new THREE.Vector3(Math.cos(a) * 15, 0, Math.sin(a) * 15), head = new THREE.Vector3(Math.cos(a + 0.35) * 7, y0 - 4, Math.sin(a + 0.35) * 7);
+    const d = head.clone().sub(foot);
+    dark.push(new THREE.CylinderGeometry(0.8, 1.0, d.length(), 8).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize())).translate((foot.x + head.x) / 2, (foot.y + head.y) / 2, (foot.z + head.z) / 2));
+  }
+  // fingers: heights rise toward one side (the tallest ~60 m faces the bay), alternate a little
+  for (let k = 0; k < cfg.petals; k++) {
+    const az = k / cfg.petals * Math.PI * 2;
+    const tall = 0.25 + 0.75 * Math.pow(0.5 + 0.5 * Math.cos(az - 0.6), 1.6) * (k % 2 ? 0.82 : 1);
+    const B = 5 + (cfg.h - y0 - 5) * Math.pow(tall, 1.25);   // rise
+    const A = 40 - 12 * tall;                                  // outward reach: low fingers splay wide
+    const Wmax = 17 + 6 * tall;
+    const radial = new THREE.Vector3(Math.cos(az), 0, Math.sin(az));
+    const side = new THREE.Vector3(-Math.sin(az), 0, Math.cos(az));
+    const spine = [];
+    const N = 18, thMax = THREE.MathUtils.degToRad(38 + 52 * tall);
+    for (let j = 0; j <= N; j++) {
+      const u = j / N, th = u * thMax;
+      const p = radial.clone().multiplyScalar(10 + A * Math.sin(th)).setY(y0 + 2 + B * (1 - Math.cos(th)) / (1 - Math.cos(thMax)));
+      const tan = radial.clone().multiplyScalar(A * Math.cos(th)).setY(B * Math.sin(th) / (1 - Math.cos(thMax))).normalize();
+      const nrm = new THREE.Vector3().crossVectors(side, tan).normalize();
+      // broad through the middle, rounding off to a blunt tip
+      let w = Wmax * (0.5 + 0.5 * Math.pow(Math.sin(Math.PI * Math.min(u, 0.85) / 1.7 + 0.25), 0.8));
+      if (u > 0.9) w *= Math.sqrt(Math.max(0.04, 1 - Math.pow((u - 0.9) / 0.1, 2)));
+      spine.push({ p, side, nrm, w, h: 1.8 - 0.9 * u, cam: 3.6 * Math.min(1, u * 3) });
+    }
+    shells.push(sweep(spine, 16));
+    // skylight glazing on the blunt end of each finger
+    const tip = spine[N - 1], q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(tip.side, tip.nrm, new THREE.Vector3().crossVectors(tip.side, tip.nrm)));
+    glass.push(new THREE.SphereGeometry(1, 14, 8).scale(tip.w * 0.32, 0.35, 1.4).applyQuaternion(q).translate(tip.p.x, tip.p.y, tip.p.z));
+  }
+  const plain = x => { x = x.index ? x.toNonIndexed() : x; if (x.attributes.uv) x.deleteAttribute('uv'); if (!x.attributes.normal) x.computeVertexNormals(); return x; };
+  g.add(new THREE.Mesh(mergeGeometries(shells.map(plain)), M.white));
+  g.add(new THREE.Mesh(mergeGeometries(glass.map(plain)), new THREE.MeshStandardMaterial({ color: 0x1d3a3a, roughness: 0.15, metalness: 0.5, emissive: new THREE.Color(0.12, 0.38, 0.36) })));
+  g.add(new THREE.Mesh(mergeGeometries(dark.map(plain)), M.concrete));
   // the lily pond around it
   const pond = new THREE.Mesh(new THREE.CircleGeometry(58, 48), new THREE.MeshStandardMaterial({ color: 0x07131c, roughness: 0.2, metalness: 0.6 }));
   pond.rotation.x = -Math.PI / 2; pond.position.y = 0.08;
