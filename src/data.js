@@ -59,6 +59,45 @@ export async function loadAll(onProgress) {
   return { race: new Race(race, bin), city, sessions, id };
 }
 
+// The circuit centreline as a closed Catmull-Rom curve, parameterised by arc length (metres).
+// The build script encodes on-track car positions against exactly this curve.
+export class TrackCurve {
+  constructor(center, elev) {
+    this.P = center;
+    this.E = elev;
+    this.n = center.length;
+    this.S = new Float64Array(this.n + 1);
+    for (let i = 0; i < this.n; i++) {
+      const a = center[i], b = center[(i + 1) % this.n];
+      this.S[i + 1] = this.S[i] + Math.hypot(b[0] - a[0], b[1] - a[1]);
+    }
+    this.L = this.S[this.n];
+    this.hint = 0;
+  }
+
+  // point, unit tangent and elevation at arc length s -> out {x, y, tx, ty, e} (map coords)
+  at(s, out) {
+    const { S, P, n, L } = this;
+    s = ((s % L) + L) % L;
+    let i = Math.min(n - 1, Math.max(0, Math.floor(s / L * n)));
+    while (i > 0 && S[i] > s) i--;
+    while (i < n - 1 && S[i + 1] <= s) i++;
+    const u = (s - S[i]) / (S[i + 1] - S[i] || 1);
+    const p0 = P[(i - 1 + n) % n], p1 = P[i], p2 = P[(i + 1) % n], p3 = P[(i + 2) % n];
+    const u2 = u * u, u3 = u2 * u;
+    for (let c = 0; c < 2; c++) {
+      const a = p0[c], b = p1[c], cc = p2[c], d = p3[c];
+      const v = 0.5 * (2 * b + (-a + cc) * u + (2 * a - 5 * b + 4 * cc - d) * u2 + (-a + 3 * b - 3 * cc + d) * u3);
+      const dv = 0.5 * ((-a + cc) + 2 * (2 * a - 5 * b + 4 * cc - d) * u + 3 * (-a + 3 * b - 3 * cc + d) * u2);
+      if (c === 0) { out.x = v; out.tx = dv; } else { out.y = v; out.ty = dv; }
+    }
+    const l = Math.hypot(out.tx, out.ty) || 1;
+    out.tx /= l; out.ty /= l;
+    out.e = this.E[i] + (this.E[(i + 1) % n] - this.E[i]) * u;
+    return out;
+  }
+}
+
 // last index i with arr[i][0] <= t (arr sorted by [0]); -1 if none
 function bisect(arr, t, key = 0) {
   let lo = 0, hi = arr.length - 1, ans = -1;
@@ -73,6 +112,10 @@ export class Race {
   constructor(meta, buffer) {
     Object.assign(this, meta);
     this.frames = new Int16Array(buffer);
+    this.framesU = new Uint16Array(buffer);
+    this.curve = new TrackCurve(meta.track.center, meta.track.elev);
+    this._c = {};
+    this._q = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
     this.n = this.drivers.length;
     this.duration = this.frames.length / (this.n * 4) / this.hz;
     this.byNum = new Map(this.drivers.map((d, k) => [d.num, k]));
@@ -121,18 +164,54 @@ export class Race {
 
   frameIndex(t) { return Math.max(0, Math.min(this.duration * this.hz - 1, t * this.hz)); }
 
-  // Catmull-Rom interpolated position (metres; x=east, y=north) into out[0..1]
+  // Interpolated position into out: [x east, y north, elevation (NaN off track), on-track 0/1].
+  // On-track frames hold (arc length, lateral offset) and are interpolated along the curve,
+  // so cars follow the circuit smoothly between the 4 Hz samples.
   pos(k, t, out) {
-    const F = this.frames, nf = this.duration * this.hz | 0, base = k * nf * 4;
+    const F = this.frames, U = this.framesU, nf = this.duration * this.hz | 0, base = k * nf * 4;
     const f = this.frameIndex(t);
     const i = Math.floor(f), u = f - i;
-    const g = j => Math.max(0, Math.min(nf - 1, j));
-    const i0 = base + g(i - 1) * 4, i1 = base + g(i) * 4, i2 = base + g(i + 1) * 4, i3 = base + g(i + 2) * 4;
-    const u2 = u * u, u3 = u2 * u;
-    for (let c = 0; c < 2; c++) {
-      const p0 = F[i0 + c], p1 = F[i1 + c], p2 = F[i2 + c], p3 = F[i3 + c];
-      out[c] = 0.05 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
+    const g = j => base + Math.max(0, Math.min(nf - 1, j)) * 4;
+    const idx = [g(i - 1), g(i), g(i + 1), g(i + 2)];
+    const on = idx.map(j => (F[j + 3] >> 13) & 1);
+    const cr = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * u + (2 * a - 5 * b + 4 * c - d) * u * u + (-a + 3 * b - 3 * c + d) * u * u * u);
+    const C = this._c;
+    if (on[1] && on[2]) {
+      // unwrap arc lengths around frame i so the lap line does not cause a jump
+      const L = this.curve.L, s1 = U[idx[1]] / 10;
+      const sv = idx.map((j, m) => {
+        if (!on[m]) return null;
+        let v = U[j] / 10;
+        if (v - s1 > L / 2) v -= L; else if (s1 - v > L / 2) v += L;
+        return v;
+      });
+      const dv = idx.map((j, m) => (on[m] ? F[j + 1] / 100 : null));
+      if (sv[0] == null) { sv[0] = 2 * sv[1] - sv[2]; dv[0] = dv[1]; }
+      if (sv[3] == null) { sv[3] = 2 * sv[2] - sv[1]; dv[3] = dv[2]; }
+      const s = cr(sv[0], sv[1], sv[2], sv[3]), d = cr(dv[0], dv[1], dv[2], dv[3]);
+      this.curve.at(s, C);
+      out[0] = C.x + C.ty * d;
+      out[1] = C.y - C.tx * d;
+      out[2] = C.e;
+      out[3] = 1;
+      return out;
     }
+    // off track (or switching): convert every frame to x/y and interpolate those
+    const q = this._q;
+    for (let m = 0; m < 4; m++) {
+      const j = idx[m];
+      if (on[m]) {
+        this.curve.at(U[j] / 10, C);
+        const d = F[j + 1] / 100;
+        q[m][0] = C.x + C.ty * d; q[m][1] = C.y - C.tx * d;
+      } else {
+        q[m][0] = F[j] / 10; q[m][1] = F[j + 1] / 10;
+      }
+    }
+    out[0] = cr(q[0][0], q[1][0], q[2][0], q[3][0]);
+    out[1] = cr(q[0][1], q[1][1], q[2][1], q[3][1]);
+    out[2] = NaN;
+    out[3] = 0;
     return out;
   }
 

@@ -79,9 +79,11 @@ Other sessions on the same layout reuse it with `--track-from`. Races (and sprin
 lights and a lap counter; practice and qualifying get a best-lap timing tower and a session clock.
 2026 cars have no DRS, so DRS zones and the DRS badge are hidden for 2026 sessions.
 
-`race.bin` is `int16[driver][frame][4]` at 4 Hz, holding `x_dm, y_dm, speed_kph, packed`.
-`packed` is throttle (7 bits), gear << 7, DRS << 11 and brake << 12. Coordinates are local metres
-×10 (x east, y north) around Marina Bay.
+`race.bin` is `int16[driver][frame][4]` at 4 Hz: `f0, f1, speed_kph, packed`, where `packed` holds
+throttle (7 bits), gear << 7, DRS << 11, brake << 12 and on-track << 13. On track, `f0` is the
+distance along the centreline (uint16, dm) and `f1` the lateral offset (cm); both are fitted with
+smoothing splines, so cars follow the circuit's curve without sample jitter. Off track (pit lane,
+garage), `f0`/`f1` are x/y in dm, local metres east/north.
 
 ## Project layout
 

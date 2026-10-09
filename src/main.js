@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { loadAll } from './data.js';
 import { buildSky, buildCity, buildWater } from './world.js';
@@ -19,6 +20,8 @@ async function boot() {
   const { race, city, sessions, id } = await loadAll(p => setLights(Math.min(5, Math.floor(p * 5.01))));
   try { sessionStorage.setItem('f1mb-session', id); } catch { /* storage unavailable */ }
   status.textContent = 'Building Marina Bay…';
+  // sponsor boards and signs are drawn to canvas in the web font, so wait for it
+  try { await Promise.race([document.fonts.load('900 40px "Titillium Web"'), new Promise(r => setTimeout(r, 2500))]); } catch { /* fallback font */ }
   await new Promise(r => setTimeout(r, 30));
 
   // ---------------------------------------------------------------- renderer
@@ -46,18 +49,44 @@ async function boot() {
   scene.add(wash);
 
   buildSky(scene);
-  const { beacons } = buildCity(scene, city);
+  const { beacons, update: updateCity, heightAt } = buildCity(scene, city);
   const water = buildWater(scene, city, renderer);
   const track = new Track(race);
   track.build(scene, race);
   const cars = new Cars(scene, race, track);
-  const director = new Director(camera, renderer.domElement, track);
+  const director = new Director(camera, renderer.domElement, track, heightAt);
   director.overview();
 
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.9);
   composer.addPass(bloom);
+  // radial "zoom" blur + vignette that builds with speed in the chase and onboard cameras
+  const speedPass = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, strength: { value: 0 }, center: { value: new THREE.Vector2(0.5, 0.55) }, aspect: { value: 1 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `
+      uniform sampler2D tDiffuse; uniform float strength; uniform vec2 center; uniform float aspect; varying vec2 vUv;
+      void main(){
+        vec2 dir = vUv - center;
+        float d = length(dir * vec2(aspect, 1.0));
+        float amt = strength * smoothstep(0.06, 0.75, d);
+        vec3 c = vec3(0.0);
+        for (int i = 0; i < 14; i++) {
+          float s = 1.0 - amt * float(i) / 13.0;
+          vec2 uv = center + dir * s;
+          // slight chromatic split at the edges
+          c.r += texture2D(tDiffuse, center + dir * (s + amt * 0.04)).r;
+          c.g += texture2D(tDiffuse, uv).g;
+          c.b += texture2D(tDiffuse, center + dir * (s - amt * 0.04)).b;
+        }
+        c /= 14.0;
+        c *= 1.0 - strength * 2.2 * smoothstep(0.35, 1.05, d);
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  });
+  speedPass.enabled = false;
+  composer.addPass(speedPass);
   composer.addPass(new OutputPass());
 
   // ---------------------------------------------------------------- state
@@ -99,6 +128,7 @@ async function boot() {
     ui.setCamera(m);
   }
   setCamera('orbit');
+  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, cars, race, track };
   ui.setPlaying(true);
   ui.setSpeed(1);
 
@@ -142,6 +172,14 @@ async function boot() {
     track.setStartLights(race.isRace && ls > 0 && ls < 6 ? Math.min(5, Math.floor(6 - ls)) : 0);
 
     water.material.uniforms.time.value += dt;
+    updateCity(dt);
+    track.update(dt);
+    // speed blur follows the focused car's speed (only while playing)
+    const want = state.playing ? (director.speedFactor || 0) * 0.075 * Math.min(1, state.speed) : 0;
+    const su = speedPass.uniforms.strength;
+    su.value += (want - su.value) * (1 - Math.pow(0.02, dt));
+    speedPass.uniforms.aspect.value = camera.aspect;
+    speedPass.enabled = su.value > 0.002;
     beacons.material.color.setRGB(2 + 2.5 * (Math.sin(clock.elapsedTime * 3) > 0.6 ? 1 : 0), 0.12, 0.08);
 
     uiAcc += dt;

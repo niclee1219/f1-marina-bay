@@ -21,6 +21,7 @@ import sys
 from datetime import datetime, timedelta
 
 import numpy as np
+from scipy.interpolate import make_smoothing_spline
 from scipy.spatial import cKDTree
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -224,7 +225,7 @@ def build_track(ctx):
         w = np.exp(-0.5 * (np.arange(-3 * k, 3 * k + 1) / k) ** 2); w /= w.sum()
         pad = np.concatenate([v[-3 * k:], v, v[:3 * k]])
         return np.convolve(pad, w, mode="valid")
-    cl = np.stack([smooth(cl[:, 0], 2), smooth(cl[:, 1], 2)], 1)
+    cl = np.stack([smooth(cl[:, 0], 3), smooth(cl[:, 1], 3)], 1)
     z = smooth(z, 6); z -= z.min()
     speed = smooth(speed, 2)
 
@@ -276,16 +277,84 @@ def build_track(ctx):
     return track, cl
 
 
+class TrackFrame:
+    """Arc-length frame along the centreline, using the same Catmull-Rom curve as the web app."""
+
+    def __init__(self, center):
+        P = np.asarray(center, float)
+        n = len(P)
+        self.S = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(np.vstack([P, P[:1]]), axis=0), axis=1))])
+        self.L = self.S[-1]
+        pts, ss = [], []
+        for i in range(n):
+            m = max(2, int((self.S[i + 1] - self.S[i]) / 0.2))
+            u = (np.arange(m) / m)[:, None]
+            p0, p1, p2, p3 = P[i - 1], P[i], P[(i + 1) % n], P[(i + 2) % n]
+            pts.append(0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u ** 2
+                              + (-p0 + 3 * p1 - 3 * p2 + p3) * u ** 3))
+            ss.append(self.S[i] + u[:, 0] * (self.S[i + 1] - self.S[i]))
+        self.pts = np.vstack(pts)
+        self.ss = np.concatenate(ss)
+        tan = np.gradient(self.pts, axis=0)
+        self.tan = tan / np.linalg.norm(tan, axis=1)[:, None]
+        self.tree = cKDTree(self.pts)
+
+    def project(self, xy):
+        """-> arc length s, lateral offset d (positive = the app's +N side), distance to curve."""
+        dist, i = self.tree.query(xy)
+        nrm = np.stack([self.tan[i, 1], -self.tan[i, 0]], 1)
+        d = ((xy - self.pts[i]) * nrm).sum(1)
+        return self.ss[i], d, dist
+
+
+def smooth_motion(t, xy, tf, grid):
+    """Resample one car's raw positions onto the frame grid.
+
+    On track, the car is described by (s, d): distance along the centreline and lateral offset,
+    each fitted with a smoothing spline, so motion follows the curve without sample jitter.
+    Off track (pit lane, garage, run-off) we fall back to lightly smoothed x/y.
+    Returns s, d, x, y arrays on the grid and a boolean on-track mask.
+    """
+    s_raw, d_raw, dist = tf.project(xy)
+    on = (np.abs(d_raw) < 13) & (dist < 13)
+    S = np.zeros(len(grid)); D = np.zeros(len(grid)); mask = np.zeros(len(grid), bool)
+    idx = np.where(on)[0]
+    if len(idx):
+        cuts = np.where((np.diff(idx) != 1) | (np.diff(t[idx]) > 1.5))[0] + 1
+        for run in np.split(idx, cuts):
+            if len(run) < 12:
+                continue
+            tt = t[run]
+            jumps = (np.diff(s_raw[run]) + tf.L / 2) % tf.L - tf.L / 2
+            su = s_raw[run][0] + np.concatenate([[0], np.cumsum(jumps)])
+            g = (grid >= tt[0]) & (grid <= tt[-1])
+            if not g.any():
+                continue
+            S[g] = make_smoothing_spline(tt, su, lam=0.03)(grid[g]) % tf.L
+            D[g] = make_smoothing_spline(tt, d_raw[run], lam=0.5)(grid[g])
+            mask[g] = True
+    # off-track: linear resample then a short Gaussian (sigma 0.5 s) to take out jitter
+    X = np.interp(grid, t, xy[:, 0]); Y = np.interp(grid, t, xy[:, 1])
+    k = np.exp(-0.5 * (np.arange(-4, 5) / 2.0) ** 2); k /= k.sum()
+    X = np.convolve(np.pad(X, 4, mode="edge"), k, mode="valid")
+    Y = np.convolve(np.pad(Y, 4, mode="edge"), k, mode="valid")
+    return S, D, X, Y, mask
+
+
 def frames_and_meta(loc, car, laps, pits, nums, drivers, xf, track, T1):
     # ------------------------------------------------------------ frames
     nframes = int((T1 - T0).total_seconds() * HZ)
     grid = np.arange(nframes) / HZ
     frames = np.zeros((len(nums), nframes, 4), np.int16)
+    tf = TrackFrame(track["center"])
     for k, n in enumerate(nums):
         lt = np.array([ts(p["date"]) for p in loc[n]])
         xy = xf([[p["x"], p["y"]] for p in loc[n]])
-        frames[k, :, 0] = np.round(np.interp(grid, lt, xy[:, 0]) * 10)
-        frames[k, :, 1] = np.round(np.interp(grid, lt, xy[:, 1]) * 10)
+        S, D, X, Y, on = smooth_motion(lt, xy, tf, grid)
+        f0 = np.where(on, np.round(S * 10).astype(np.int64), np.round(X * 10).astype(np.int64))
+        f1 = np.where(on, np.round(np.clip(D, -300, 300) * 100), np.round(Y * 10)).astype(np.int64)
+        frames[k, :, 0] = (f0 & 0xFFFF).astype(np.uint16).view(np.int16)
+        frames[k, :, 1] = f1
         ct = np.array([ts(c["date"]) for c in car[n]])
         sidx = np.clip(np.searchsorted(ct, grid), 0, len(ct) - 1)
         cs = np.array([c["speed"] for c in car[n]])[sidx]
@@ -295,8 +364,11 @@ def frames_and_meta(loc, car, laps, pits, nums, drivers, xf, track, T1):
         dr = (np.array([c["drs"] or 0 for c in car[n]])[sidx] >= 10).astype(int)
         br = (np.array([c["brake"] for c in car[n]])[sidx] > 0).astype(int)
         frames[k, :, 2] = cs
-        frames[k, :, 3] = thr | (gear << 7) | (dr << 11) | (br << 12)
-    # FRAME LAYOUT: int16[driver][frame][x_dm, y_dm, speed_kph, thr(7b)|gear(4b)<<7|drs<<11|brake<<12]
+        frames[k, :, 3] = thr | (gear << 7) | (dr << 11) | (br << 12) | (on.astype(int) << 13)
+        print(f"  {n:>2}: {on.mean() * 100:.0f}% of frames on track")
+    # FRAME LAYOUT: int16[driver][frame][f0, f1, speed_kph, thr(7b)|gear(4b)<<7|drs<<11|brake<<12|ontrack<<13]
+    #   on track:  f0 = uint16 arc length along the centreline (dm), f1 = lateral offset (cm)
+    #   off track: f0 = x (dm), f1 = y (dm), local metres east/north
     frames.tofile(os.path.join(OUT, "race.bin"))
 
     # ------------------------------------------------------------ timeline
@@ -351,6 +423,7 @@ def frames_and_meta(loc, car, laps, pits, nums, drivers, xf, track, T1):
         "t0": T0.isoformat(), "hz": HZ, "frames": nframes,
         "race_start": rnd(start),
         "total_laps": max(l["lap_number"] for l in laps) if IS_RACE else None,
+        "frame_format": 2,
         "has_drs": any(c["drs"] is not None for c in car[nums[0]][:2000]),
         "weather": {"air": w["air_temperature"], "track": w["track_temperature"], "humidity": w["humidity"]},
         "drivers": [{
@@ -452,6 +525,15 @@ def build_city(osm, cl):
         pts = [osm.nodes[r] for r in refs if r in osm.nodes]
         if len(pts) < 2:
             continue
+        if t.get("name") in ("Padang", "NS Square") and refs[0] == refs[-1] and "building" not in t:
+            # concert stage at the Padang, fan-zone stage at NS Square, placed along the long axis
+            c = np.mean(pts, 0)
+            P = np.array(pts) - c
+            w, v = np.linalg.eigh(P.T @ P)
+            ax = v[:, -1]
+            half = float(np.abs(P @ ax).max())
+            landmarks.append({"type": "stage", "name": t["name"], "x": round(c[0], 1), "y": round(c[1], 1),
+                              "dir": round(math.atan2(ax[1], ax[0]), 3), "half": round(half, 1)})
         if t.get("attraction") == "big_wheel":
             c = np.mean(pts, 0)
             # wheel plane is along the longer axis of its footprint

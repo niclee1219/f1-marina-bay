@@ -176,12 +176,12 @@ export class Cars {
       scene.add(root);
       return {
         d, root, car, wheels, bands, flapPivot, tail, trail, label, el, elPos: el.querySelector('.pos'),
-        heading: null, xy: [0, 0], world: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, 1), y: 0, ti: 0, spin: 0,
+        heading: null, xy: [0, 0, 0, 0], world: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, 1), y: 0, ti: 0, spin: 0,
         lastComp: null,
       };
     });
-    this.tmp = [0, 0];
-    this.tmp2 = [0, 0];
+    this.tmp = [0, 0, 0, 0];
+    this.tmp2 = [0, 0, 0, 0];
   }
 
   elevation(x, z, c) {
@@ -197,16 +197,17 @@ export class Cars {
       const k = c.d.k;
       race.pos(k, t, c.xy);
       const x = c.xy[0], z = -c.xy[1];
-      race.pos(k, t - 0.2, a); race.pos(k, t + 0.2, b);
+      race.pos(k, t - 0.12, a); race.pos(k, t + 0.12, b);
       const dx = b[0] - a[0], dz = -(b[1] - a[1]);
       const moved = Math.hypot(dx, dz);
-      if (moved > 0.6) c.heading = Math.atan2(dx, dz);
+      if (moved > 0.4) c.heading = Math.atan2(dx, dz);
       else if (c.heading === null || opts.jumped) {
         const { i } = this.track.nearest(x, z);
         const tt = this.track.T[i];
         c.heading = Math.atan2(tt.x, tt.z);
       }
-      const y = this.elevation(x, z, c);
+      const yNear = this.elevation(x, z, c);
+      const y = c.xy[3] ? c.xy[2] + 0.18 : yNear; // on track: elevation straight from the curve
       c.root.position.set(x, y, z);
       c.car.rotation.y = c.heading;
       c.world.set(x, y, z);

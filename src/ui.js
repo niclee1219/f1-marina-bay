@@ -198,15 +198,18 @@ export class UI {
     const pad = 40;
     this.mm = { minx: minx - pad, minz: minz - pad, w: maxx - minx + pad * 2, h: maxz - minz + pad * 2 };
     svg.setAttribute('viewBox', `${this.mm.minx} ${this.mm.minz} ${this.mm.w} ${this.mm.h}`);
-    const d = 'M' + P.map(p => `${p.x.toFixed(1)},${p.z.toFixed(1)}`).join('L') + 'Z';
-    const drs = this.race.track.drs.map(([a, b]) =>
-      'M' + P.slice(a, b + 1).map(p => `${p.x.toFixed(1)},${p.z.toFixed(1)}`).join('L')).join('');
-    const corners = this.race.track.corners.map(c => {
+    const d = 'M' + P.filter((_, i) => i % 2 === 0).map(p => `${p.x.toFixed(1)},${p.z.toFixed(1)}`).join('L') + 'Z';
+    const drs = this.track.drs.map(([a, b]) => {
+      const pts = [];
+      for (let i = a; i <= b; i += 2) pts.push(P[i % P.length]);
+      return 'M' + pts.map(p => `${p.x.toFixed(1)},${p.z.toFixed(1)}`).join('L');
+    }).join('');
+    const corners = this.track.corners.map(c => {
       const p = P[c.i], n = this.track.N[c.i], s = this.track.curv[c.i] > 0 ? -1 : 1;
       return `<text x="${(p.x + n.x * s * 42).toFixed(0)}" y="${(p.z + n.z * s * 42).toFixed(0)}">${c.n}</text>`;
     }).join('');
     const sf = P[0], sfn = this.track.N[0];
-    svg.innerHTML = `<path class="mm-out" d="${d}"/><path class="mm-track" d="${d}"/><path class="mm-drs" d="${drs}"/>
+    svg.innerHTML = `<path class="mm-out" d="${d}"/><path class="mm-track" d="${d}"/>${this.race.has_drs === false ? '' : `<path class="mm-drs" d="${drs}"/>`}
       <line class="mm-sf" x1="${sf.x + sfn.x * 22}" y1="${sf.z + sfn.z * 22}" x2="${sf.x - sfn.x * 22}" y2="${sf.z - sfn.z * 22}"/>
       <g class="mm-corners">${corners}</g><g id="mm-dots"></g>`;
     const g = $('#mm-dots');
