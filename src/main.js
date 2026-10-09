@@ -11,6 +11,7 @@ import { buildSkyline, hiddenBuilding } from './skyline.js';
 import { Track } from './track.js';
 import { Cars } from './cars.js';
 import { Bridges } from './bridges.js';
+import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
 import { Crowd } from './crowd.js';
 import { Director, MODES } from './camera.js';
@@ -58,13 +59,15 @@ async function boot() {
   const skyline = buildSkyline(scene, city, domes);
   const water = buildWater(scene, city, renderer);
   const track = new Track(race);
-  const bridges = new Bridges(track);   // sets the shade zones before the asphalt material compiles
+  const viaducts = new Viaducts(city, track, race);
+  const bridges = new Bridges(track, viaducts.zones);   // sets the shade zones before the asphalt material compiles
   track.build(scene, race);
   bridges.build(scene);
+  viaducts.build(scene);
   const pit = buildPitComplex(track.group, city, race, track);
   const cars = new Cars(scene, race, track, bridges);
   const crowd = new Crowd(scene, track, race, pit.decks);
-  const director = new Director(camera, renderer.domElement, track, heightAt);
+  const director = new Director(camera, renderer.domElement, track, (x, z, y) => (viaducts.blocks(x, y, z) ? Infinity : heightAt(x, z)));
   director.overview();
 
   const composer = new EffectComposer(renderer);
@@ -138,7 +141,7 @@ async function boot() {
     ui.setCamera(m);
   }
   setCamera('orbit');
-  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, cars, race, track, bridges, renderer, crowd, pit, skyline, composer };
+  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, cars, race, track, bridges, viaducts, renderer, crowd, pit, skyline, composer };
   ui.setPlaying(true);
   ui.setSpeed(1);
 

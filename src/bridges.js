@@ -6,11 +6,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BRIDGES, COLORS } from './config.js';
+import { MAX_ZONES } from './track.js';
 
 const WALL = 10.2;      // track wall offset (matches track.js)
 const UP = new THREE.Vector3(0, 1, 0);
 
-function tube(a, b, r, seg = 6) {
+export function tube(a, b, r, seg = 6) {
   const d = new THREE.Vector3().subVectors(b, a);
   const len = d.length();
   const g = new THREE.CylinderGeometry(r, r, len, seg, 1);
@@ -28,7 +29,7 @@ function boxAt(p, t, w, h, d, yaw = 0) {
 }
 
 // quad strip from two point rows (a[k] -> b[k])
-function strip(a, b, flip = false) {
+export function strip(a, b, flip = false) {
   const pos = [], idx = [];
   for (let k = 0; k < a.length; k++) {
     pos.push(a[k].x, a[k].y, a[k].z, b[k].x, b[k].y, b[k].z);
@@ -47,7 +48,8 @@ function strip(a, b, flip = false) {
 }
 
 export class Bridges {
-  constructor(track) {
+  // overhead: zones under elevated decks the track passes beneath (Viaducts.zones)
+  constructor(track, overhead = []) {
     this.track = track;
     const n = track.n;
     this.zones = BRIDGES.map(b => {
@@ -63,9 +65,12 @@ export class Bridges {
         feather: 6,
       };
     });
+    this.zones.push(...overhead);
+    track.overhead = overhead.map(z => [z.s0, z.s1]);
     // shared with the asphalt shader: (s0, s1, shade, feather) per zone
     const u = track.zoneUniform.value;
-    this.zones.forEach((z, k) => u[k].set(z.s0, z.s1, z.shade, z.feather));
+    if (this.zones.length > MAX_ZONES) console.warn(`bridges: ${this.zones.length} shade zones, shader takes ${MAX_ZONES}`);
+    this.zones.slice(0, MAX_ZONES).forEach((z, k) => u[k].set(z.s0, z.s1, z.shade, z.feather));
   }
 
   // 1 outside every zone, the zone's shade factor inside, feathered at the ends
@@ -101,6 +106,7 @@ export class Bridges {
       lamp: new THREE.MeshBasicMaterial({ color: new THREE.Color(...COLORS.lampWarm) }),
     };
     for (const z of this.zones) {
+      if (z.overhead) continue;    // built by Viaducts
       if (z.style === 'arch') this.buildArch(g, z);
       else this.buildDeck(g, z);
     }
@@ -304,14 +310,14 @@ export class Bridges {
 }
 
 // small horizontal glow card (reads as a halo from above and from the side through bloom)
-function billboardQuad(p, size) {
+export function billboardQuad(p, size) {
   const a = new THREE.PlaneGeometry(size, size).translate(p.x, p.y, p.z);
   const b = new THREE.PlaneGeometry(size, size).rotateY(Math.PI / 2).translate(p.x, p.y, p.z);
   return mergeGeometries([a, b]);
 }
 
 let _glow;
-function glowTex() {
+export function glowTex() {
   if (_glow) return _glow;
   const c = document.createElement('canvas');
   c.width = c.height = 64;

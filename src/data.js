@@ -51,11 +51,15 @@ export async function loadAll(onProgress) {
   const parts = [0, 0, 0];
   const weights = [0.15, 0.15, 0.7];
   const report = () => onProgress(parts.reduce((a, p, i) => a + p * weights[i], 0));
-  const [race, city, bin] = await Promise.all([
+  const [race, city, bin, bridges] = await Promise.all([
     fetchWithProgress(`data/${id}/race.json`, p => { parts[0] = p; report(); }, 'json'),
     fetchWithProgress('data/city.json', p => { parts[1] = p; report(); }, 'json'),
     fetchWithProgress(`data/${id}/race.bin`, p => { parts[2] = p; report(); }, 'bin'),
+    // elevated structures from OSM (East Coast Parkway viaducts, footbridges): scripts/fetch_bridges.py
+    fetch('data/bridges.json').then(r => r.json()),
   ]);
+  city.bridges = bridges.ways;
+  city.bridgeDeck = bridges.deck;
   return { race: new Race(race, bin), city, sessions, id };
 }
 

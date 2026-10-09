@@ -6,6 +6,7 @@ export const MODES = ['orbit', 'tv', 'chase', 'onboard', 'heli'];
 export const MODE_LABELS = { orbit: 'Free', tv: 'Broadcast', chase: 'Chase', onboard: 'Onboard', heli: 'Helicopter' };
 
 export class Director {
+  // heightAt(x, z, y): height of whatever stands at (x, z); y lets overhead decks block only their own slab
   constructor(camera, dom, track, heightAt = () => 0) {
     this.camera = camera;
     this.track = track;
@@ -38,7 +39,7 @@ export class Director {
         const q = track.P[(i + Math.round(a / track.bin) + track.n) % track.n];
         for (let f = 0; f <= 1; f += 0.1) {
           const x = sp.x + (q.x - sp.x) * f, z = sp.z + (q.z - sp.z) * f, y = sp.y + (q.y + 1 - sp.y) * f;
-          if (heightAt(x, z) > y) { blocked = true; break; }
+          if (heightAt(x, z, y) > y) { blocked = true; break; }
         }
       }
       if (blocked) continue;

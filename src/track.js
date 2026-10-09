@@ -7,6 +7,7 @@ import { sponsorAtlas, boardTexture, titleSponsor, BOARD_UV_GLSL } from './spons
 const HALF = 7.0;           // half track width (m)
 const LIFT = 0.18;          // track surface above ground
 const WALL = HALF + 3.2;    // concrete wall offset
+export const MAX_ZONES = 12; // shade zones the asphalt shader evaluates
 export const TRACK_HALF = HALF;
 
 function canvasTex(w, h, draw, repeat = true) {
@@ -86,7 +87,15 @@ export class Track {
     });
     this.animated = [];
     // shade zones along the track (s0, s1, shade, feather), filled in by Bridges
-    this.zoneUniform = { value: Array.from({ length: 4 }, () => new THREE.Vector4(-1e6, -1e6, 1, 1)) };
+    this.zoneUniform = { value: Array.from({ length: MAX_ZONES }, () => new THREE.Vector4(-1e6, -1e6, 1, 1)) };
+    // [s0, s1] spans under an overhead deck (expressway viaducts), filled in by Bridges
+    this.overhead = [];
+  }
+
+  // true when sample i lies under an overhead deck (plus a margin in metres)
+  underDeck(i, margin = 6) {
+    const s = (((i % this.n) + this.n) % this.n) * this.bin, L = this.length;
+    return this.overhead.some(([a, b]) => [s, s + L, s - L].some(x => x > a - margin && x < b + margin));
   }
 
   nearest(x, z) {
@@ -213,10 +222,10 @@ export class Track {
       s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vTrackUv;')
         .replace('#include <uv_vertex>', '#include <uv_vertex>\nvTrackUv = uv;');
       s.fragmentShader = s.fragmentShader.replace('#include <common>', `#include <common>
-          varying vec2 vTrackUv; uniform vec4 uZones[4];
+          varying vec2 vTrackUv; uniform vec4 uZones[${MAX_ZONES}];
           float zoneShade(float d){
             float v = 1.0;
-            for (int k = 0; k < 4; k++) {
+            for (int k = 0; k < ${MAX_ZONES}; k++) {
               vec4 z = uZones[k];
               float w = smoothstep(z.x - z.w, z.x + z.w, d) * (1.0 - smoothstep(z.y - z.w, z.y + z.w, d));
               v = min(v, 1.0 - (1.0 - z.z) * w);
@@ -361,7 +370,9 @@ export class Track {
 
   buildLights(g) {
     // Floodlight towers every ~32 m, alternating sides, arm reaching over the barrier.
-    const items = this.every(32, [1]).map((it, k) => ({ i: it.i, o: (k % 2 ? 1 : -1) * (WALL + 1.3) }));
+    // (none under the expressway decks: those spans are lit from the deck soffit, see viaducts.js)
+    const items = this.every(32, [1]).map((it, k) => ({ i: it.i, o: (k % 2 ? 1 : -1) * (WALL + 1.3) }))
+      .filter(it => !this.underDeck(it.i));
     const poleGeo = new THREE.CylinderGeometry(0.22, 0.32, 11, 6).translate(0, 5.5, 0);
     const armGeo = new THREE.BoxGeometry(0.2, 0.2, 5.5).translate(0, 11, 2.75);
     this.instances(g, 'poles', mergeGeometries([poleGeo, armGeo]), new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.6, roughness: 0.5 }), items);
@@ -413,7 +424,7 @@ export class Track {
     for (let i = 60; i < this.n - 60; i += 5) {
       let flat = true;
       for (let k = -14; k <= 14; k++) if (Math.abs(this.curv[(i + k) % this.n]) > 0.004) { flat = false; break; }
-      if (flat && picks.every(p => Math.abs(p - i) > 280)) picks.push(i);
+      if (flat && !this.underDeck(i, 30) && picks.every(p => Math.abs(p - i) > 280)) picks.push(i);
     }
     const ticker = canvasTex(1024, 64, (c, w, h) => {
       c.fillStyle = '#07070b'; c.fillRect(0, 0, w, h);

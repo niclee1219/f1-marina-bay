@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
+import { elevatedRoadKeys } from './viaducts.js';
 
 // OSM metres (x east, y north) -> scene (X, Z)
 export const sx = x => x;
@@ -181,10 +182,14 @@ export function buildCity(scene, city, hidden = () => false) {
     new THREE.MeshStandardMaterial({ color: 0x0f261a, roughness: 1, emissive: 0x04100a }));
   group.add(parks);
 
-  // roads: flat ribbons
+  // roads: flat ribbons (expressway viaducts are built as elevated decks in viaducts.js)
+  const elevated = elevatedRoadKeys(city);
   const roadPos = [];
   for (const r of city.roads) {
     const p = r.p, hw = r.w / 2;
+    let up = 0;
+    for (let i = 0; i < p.length; i += 2) if (elevated.has(`${Math.round(p[i])},${Math.round(p[i + 1])}`)) up++;
+    if (up * 2 >= p.length / 2) continue;
     for (let i = 0; i + 3 < p.length; i += 2) {
       const ax = p[i], ay = -p[i + 1], bx = p[i + 2], by = -p[i + 3];
       const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
