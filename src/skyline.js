@@ -305,8 +305,9 @@ function marinaBaySands(city, M, animated) {
 }
 
 // ---------------------------------------------------------------- Singapore Flyer
-function flyer(lm, M, animated) {
+function flyer(city, lm, M, animated) {
   const g = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({ color: 0xe6e8ea, metalness: 0.5, roughness: 0.35, emissive: 0x2a2c30 });
   const R = 75, H = 165, cy = H - R;
   const wheel = new THREE.Group();
   wheel.position.y = cy;
@@ -329,7 +330,7 @@ function flyer(lm, M, animated) {
     s.rotateX((i % 2 ? 1 : -1) * 0.03); s.rotateZ(a);
     rimGeos.push(s);
   }
-  wheel.add(new THREE.Mesh(mergeGeometries(rimGeos.map(x => (x.index ? x.toNonIndexed() : x))), M.metal));
+  wheel.add(new THREE.Mesh(mergeGeometries(rimGeos.map(x => (x.index ? x.toNonIndexed() : x))), white));
   // LED rings that slowly cycle through colours
   const ledMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.6, 1.0, 1.9) });
   wheel.add(new THREE.Mesh(mergeGeometries([
@@ -345,78 +346,144 @@ function flyer(lm, M, animated) {
     caps.setMatrixAt(i, m4.makeTranslation(Math.sin(a) * (R + 3.6), Math.cos(a) * (R + 3.6), 0));
   }
   wheel.add(caps);
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 16, 16).rotateX(Math.PI / 2), M.metal);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 16, 16).rotateX(Math.PI / 2), white);
   wheel.add(hub);
   g.add(wheel);
-  // A-frame legs and the terminal building
-  for (const side of [-1, 1]) for (const lean of [-1, 1]) {
-    const legLen = Math.hypot(cy, 34);
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 2.2, legLen, 8), M.metal);
-    leg.position.set(lean * 17, cy / 2, side * 7);
-    leg.rotation.z = lean * Math.atan2(34, cy);
-    g.add(leg);
+  // A-frame: two raking legs splayed along the axle (a single column seen face-on, an A from the side)
+  for (const side of [-1, 1]) {
+    const foot = new THREE.Vector3(0, 14, side * 32), head = new THREE.Vector3(0, cy, side * 5);
+    const d = head.clone().sub(foot);
+    const legG = new THREE.CylinderGeometry(1.3, 2.1, d.length(), 10)
+      .applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()))
+      .translate((foot.x + head.x) / 2, (foot.y + head.y) / 2, (foot.z + head.z) / 2);
+    g.add(new THREE.Mesh(legG, white));
   }
-  const base = new THREE.Mesh(new THREE.BoxGeometry(150, 12, 40), new THREE.MeshStandardMaterial({ color: 0x252a35, emissive: 0x141820 }));
-  base.position.set(0, 6, -40);
-  g.add(base);
   g.position.set(lm.x, 0, -lm.y);
   g.rotation.y = lm.dir;
+  const term = byName(city, LANDMARKS.flyer.terminal);
+  const out = new THREE.Group();
+  out.add(g);
+  if (term) {
+    const shape = new THREE.Shape(Array.from({ length: term.p.length / 2 }, (_, i) => new THREE.Vector2(term.p[i * 2], term.p[i * 2 + 1])));
+    const body = new THREE.ExtrudeGeometry(shape, { depth: 13, bevelEnabled: false }).rotateX(-Math.PI / 2);
+    out.add(new THREE.Mesh(tagBuilding(body, 0.57, 13, new THREE.Color(0.16, 0.19, 0.22), KIND.retail), M.glass));
+    const roof = new THREE.ExtrudeGeometry(shape, { depth: 1.2, bevelEnabled: false }).rotateX(-Math.PI / 2).translate(0, 13, 0);
+    const c = centroid(term.p);
+    roof.translate(-c.x, 0, c.y).scale(1.04, 1, 1.04).translate(c.x, 0, -c.y);
+    out.add(new THREE.Mesh(roof, white));
+  }
   animated.push((dt, t) => {
     wheel.rotation.z -= dt * (Math.PI * 2 / 1800);   // one revolution in ~30 minutes
     ledMat.color.setHSL((0.52 + 0.12 * Math.sin(t * 0.08)) % 1, 0.75, 0.62).multiplyScalar(1.8);
   });
-  return g;
+  return out;
 }
 
 // ---------------------------------------------------------------- Esplanade
-// Two "durian" shells: a bulging ellipsoid clad in thousands of triangular aluminium sunshades.
+// Two "durian" shells of different sizes (Theatre larger, Concert Hall smaller): a bulging,
+// elongated glass lattice behind triangular aluminium sunshades. At night the halls glow warm
+// gold through the lattice; each shell lifts off a glazed base on a white ring beam and V-struts.
+function shellMaterial() {
+  const mat = new THREE.MeshStandardMaterial({ color: 0x8f8a80, roughness: 0.45, metalness: 0.6, side: THREE.DoubleSide });
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec2 aGrid; varying vec2 vGrid;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvGrid = aGrid;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGrid;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        {
+          // diamond lattice: two families of diagonals; each diamond split into an open glass
+          // triangle (warm glow) and a sunshade triangle (dim aluminium)
+          float a = vGrid.x + vGrid.y, b = vGrid.x - vGrid.y;
+          float fa = fract(a), fb = fract(b);
+          float edge = min(min(fa, 1.0 - fa), min(fb, 1.0 - fb));
+          float px = max(fwidth(a), fwidth(b));
+          float frame = 1.0 - smoothstep(0.05, 0.05 + px * 1.5, edge);
+          float shade = step(fa, fb);
+          vec3 glow = vec3(1.0, 0.62, 0.28);
+          vec3 cell = mix(glow * 0.85, glow * 0.22, shade);
+          vec3 lat = mix(cell, vec3(0.42, 0.4, 0.37), frame);
+          // far away the lattice averages to a soft gold
+          float far = smoothstep(0.25, 0.8, px);
+          totalEmissiveRadiance += mix(lat, glow * 0.42, far);
+        }`);
+  };
+  mat.customProgramCacheKey = () => 'esplanade-shell';
+  return mat;
+}
+
 function esplanade(domes, M) {
   const g = new THREE.Group();
-  const shellMat = new THREE.MeshStandardMaterial({ color: 0x2a251f, roughness: 0.5, metalness: 0.4, emissive: new THREE.Color(0.3, 0.17, 0.06) });
-  const spikeMat = new THREE.MeshStandardMaterial({ color: 0xb4b2ac, roughness: 0.3, metalness: 0.8, emissive: 0x2a2620 });
-  const spike = new THREE.ConeGeometry(0.95, 1.9, 3).translate(0, 0.95, 0);
+  const cfg = LANDMARKS.esplanade;
+  const shellMat = shellMaterial();
+  // the sunshades catch the warm light from inside, so they read silver-gold rather than dark
+  const spikeMat = new THREE.MeshStandardMaterial({ color: 0xb4afa4, roughness: 0.35, metalness: 0.7, emissive: new THREE.Color(0.32, 0.22, 0.11) });
+  const spike = new THREE.ConeGeometry(0.7, 1.1, 3).translate(0, 0.55, 0);
+  const whites = [], glassBase = [];
   const p = 2.6;   // superellipse exponent: fuller than a hemisphere
   for (const b of domes) {
-    let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
-    for (let i = 0; i < b.p.length; i += 2) {
-      minx = Math.min(minx, b.p[i]); maxx = Math.max(maxx, b.p[i]);
-      miny = Math.min(miny, b.p[i + 1]); maxy = Math.max(maxy, b.p[i + 1]);
-    }
-    const ax = (maxx - minx) / 2 * 0.96, az = (maxy - miny) / 2 * 0.96, h = b.h;
-    const cx = (minx + maxx) / 2, cz = -(miny + maxy) / 2;
+    const o = obb(b.p);
+    const ax = o.len / 2 * 0.98, az = o.wid / 2 * 0.98;
+    const H = cfg.heights[b.n] || b.h, s0 = cfg.spring;
+    const h = H - s0, ye = 0.16 * h;    // bulge (widest) a little above the spring line
+    // profile (r, y) from the spring line, out to the bulge, then over the top
     const prof = [];
-    for (let k = 0; k <= 24; k++) {
-      const f = k / 24 * Math.PI / 2;
-      prof.push(new THREE.Vector2(Math.pow(Math.cos(f), 2 / p), Math.pow(Math.sin(f), 2 / p)));
+    for (let k = 0; k <= 4; k++) {
+      const t = k / 4;
+      prof.push(new THREE.Vector2(0.86 + 0.14 * Math.sin(t * Math.PI / 2), ye * t));
     }
-    const shell = new THREE.LatheGeometry(prof, 64);
-    shell.scale(ax, h, az);
-    const sm = new THREE.Mesh(shell, shellMat);
-    sm.position.set(cx, 0, cz);
-    g.add(sm);
-    // spikes on a latitude / longitude grid, oriented along the surface normal
+    for (let k = 1; k <= 24; k++) {
+      const f = k / 24 * Math.PI / 2;
+      prof.push(new THREE.Vector2(Math.pow(Math.cos(f), 2 / p), ye + (h - ye) * Math.pow(Math.sin(f), 2 / p)));
+    }
+    prof[prof.length - 1].x = 0.001;
+    const shell = new THREE.LatheGeometry(prof.map(v => new THREE.Vector2(v.x, v.y)), 96);
+    // lattice coordinates: ~3.3 m diamonds around and up the shell
+    const uv = shell.attributes.uv, grid = new Float32Array(uv.count * 2);
+    const around = Math.PI * (ax + az) / 3.3, up = (h + (ax + az) / 2) / 3.3;
+    for (let i = 0; i < uv.count; i++) { grid[i * 2] = uv.getX(i) * Math.round(around); grid[i * 2 + 1] = uv.getY(i) * up; }
+    shell.setAttribute('aGrid', new THREE.BufferAttribute(grid, 2));
+    shell.scale(ax, 1, az);
+    shell.rotateY(o.a);
+    shell.translate(o.cx, s0, -o.cy);
+    g.add(new THREE.Mesh(shell, shellMat));
+    // sunshade spikes on a latitude / longitude grid, oriented along the surface normal
     const items = [];
-    const rows = 26;
-    for (let r = 1; r < rows; r++) {
-      const f = r / rows * Math.PI / 2 * 0.97;
-      const ring = Math.max(6, Math.round(Math.pow(Math.cos(f), 2 / p) * Math.PI * (ax + az) / 3.6));
+    for (let r = 1; r < 24; r++) {
+      const f = r / 24 * Math.PI / 2 * 0.97;
+      const rr = Math.pow(Math.cos(f), 2 / p), yy = ye + (h - ye) * Math.pow(Math.sin(f), 2 / p);
+      const ring = Math.max(6, Math.round(rr * Math.PI * (ax + az) / 4.2));
       for (let k = 0; k < ring; k++) {
         const th = (k + (r % 2) * 0.5) / ring * Math.PI * 2;
-        const rr = Math.pow(Math.cos(f), 2 / p), yy = Math.pow(Math.sin(f), 2 / p);
-        const x = Math.cos(th) * rr * ax, z = Math.sin(th) * rr * az, y = yy * h;
-        const n = new THREE.Vector3(x / (ax * ax), y / (h * h), z / (az * az)).normalize();
-        items.push({ pos: new THREE.Vector3(cx + x, y, cz + z), n });
+        const lx = Math.cos(th) * rr * ax, lz = Math.sin(th) * rr * az;
+        const n = new THREE.Vector3(lx / (ax * ax), (yy - ye) / (h * h) * 1.4, lz / (az * az)).normalize();
+        const pos = new THREE.Vector3(lx, s0 + yy, lz).applyAxisAngle(new THREE.Vector3(0, 1, 0), o.a);
+        n.applyAxisAngle(new THREE.Vector3(0, 1, 0), o.a);
+        items.push({ pos: pos.add(new THREE.Vector3(o.cx, 0, -o.cy)), n });
       }
     }
     const inst = new THREE.InstancedMesh(spike, spikeMat, items.length);
-    const q = new THREE.Quaternion(), m = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
-    items.forEach((it, k) => {
-      q.setFromUnitVectors(up, it.n);
-      m.compose(it.pos, q, one);
-      inst.setMatrixAt(k, m);
-    });
+    const q = new THREE.Quaternion(), m = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1), upV = new THREE.Vector3(0, 1, 0);
+    items.forEach((it, k) => { q.setFromUnitVectors(upV, it.n); m.compose(it.pos, q, one); inst.setMatrixAt(k, m); });
     g.add(inst);
+    // glazed base, white ring beam and V-struts under the spring line
+    const ring = new THREE.TorusGeometry(1, 0.035, 6, 96).rotateX(Math.PI / 2).scale(ax * 0.86, 1, az * 0.86);
+    whites.push(ring.scale(1, 18, 1).rotateY(o.a).translate(o.cx, s0, -o.cy));
+    glassBase.push(new THREE.CylinderGeometry(1, 1, s0 - 0.6, 64, 1, true).scale(ax * 0.8, 1, az * 0.8).rotateY(o.a).translate(o.cx, (s0 - 0.6) / 2, -o.cy));
+    const nV = Math.round(Math.PI * (ax + az) * 0.86 / 9);
+    for (let k = 0; k < nV; k++) {
+      const t0 = k / nV * Math.PI * 2, t1 = (k + 0.5) / nV * Math.PI * 2;
+      const P = (t, r, y) => new THREE.Vector3(Math.cos(t) * ax * r, y, Math.sin(t) * az * r).applyAxisAngle(upV, o.a).add(new THREE.Vector3(o.cx, 0, -o.cy));
+      for (const [A, B] of [[P(t0, 0.84, 0), P(t1, 0.86, s0)], [P(t1 * 2 - t0, 0.84, 0), P(t1, 0.86, s0)]]) {
+        const d = B.clone().sub(A);
+        whites.push(new THREE.CylinderGeometry(0.28, 0.32, d.length(), 6).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(upV, d.clone().normalize())).translate((A.x + B.x) / 2, (A.y + B.y) / 2, (A.z + B.z) / 2));
+      }
+    }
   }
+  const plain = x => { x = x.index ? x.toNonIndexed() : x; if (x.attributes.uv) x.deleteAttribute('uv'); return x; };
+  if (whites.length) g.add(new THREE.Mesh(mergeGeometries(whites.map(plain)), M.white));
+  if (glassBase.length) g.add(new THREE.Mesh(mergeGeometries(glassBase.map(plain)), new THREE.MeshStandardMaterial({ color: 0x1c1a17, roughness: 0.2, metalness: 0.4, emissive: new THREE.Color(0.55, 0.38, 0.2), side: THREE.DoubleSide })));
   return g;
 }
 
@@ -785,7 +852,7 @@ export function buildSkyline(scene, city, domes) {
   const animated = [];
   g.add(marinaBaySands(city, M, animated));
   const fl = city.landmarks.find(l => l.type === 'flyer');
-  if (fl) g.add(flyer(fl, M, animated));
+  if (fl) g.add(flyer(city, fl, M, animated));
   g.add(esplanade(domes, M));
   g.add(padang(city, M, city.landmarks.find(l => l.name === 'Padang')));
   g.add(artScience(M));

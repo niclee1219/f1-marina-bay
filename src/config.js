@@ -51,6 +51,10 @@ export const LIVERIES = {
 export const LANDMARKS = {
   mbs: { replaces: [/^Marina Bay Sands Tower/, /^SkyPark$/] },     // positions come from the OSM tower footprints
   artScience: { x: 8, y: -452, h: 60, petals: 10 },
+  flyer: { terminal: 'Singapore Flyer' },      // OSM terminal footprint, rebuilt under the wheel
+  // the two Esplanade shells differ in size: the Theatre is the larger one (heights in metres);
+  // `spring` is where the shell lifts off its glazed base
+  esplanade: { heights: { 'Esplanade Theatre': 45, 'Esplanade Concert Hall': 37 }, spring: 7 },
   padang: {
     cityHall: { match: 'Old City Hall', h: 27 },
     oldSupremeCourt: { match: 'Old Supreme Court', h: 24, dome: 46 },
@@ -67,7 +71,7 @@ export const LANDMARKS = {
   // the F1 pit building footprint is replaced by the pit complex in pit.js
   pit: { replaces: [/^F1 Pit Building$/] },
   // hidden extrusions that sit under the hand-built Padang / CBD models
-  extraHidden: [/^UOB Plaza$/],
+  extraHidden: [/^UOB Plaza$/, /^Singapore Flyer$/],
 };
 
 // Bridges the circuit crosses. `from` / `to` are OSM end points of the bridge deck; the zone along

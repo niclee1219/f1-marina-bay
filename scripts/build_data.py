@@ -631,7 +631,7 @@ def build_city(osm, cl):
 
     for b in buildings:
         n = b.get("n", "")
-        if n.startswith("Esplanade Theatre") or n == "Esplanade Concert Hall":
+        if n in ("Esplanade Theatre", "Esplanade Concert Hall"):   # not the complex footprint
             b["dome"] = 1
     print("city: buildings", len(buildings), "water", len(water), "parks", len(parks), "roads", len(roads),
           "landmarks", landmarks)
