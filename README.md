@@ -2,7 +2,7 @@
 
 An interactive, stylised 3D map of the **Marina Bay Street Circuit** with a full replay of the
 **2025 Singapore Grand Prix** (5 Oct 2025, won by George Russell), plus sessions from the
-2026 weekend as their data is published (FP1 so far). All 20 cars move along the
+2026 weekend as their data is published (FP1 and Sprint Qualifying so far). All 20 cars move along the
 paths they actually drove, using the recorded car-location telemetry. The city around the track is
 built from real OpenStreetMap footprints.
 
@@ -77,6 +77,9 @@ The track geometry (centreline, kerbs, corners, DRS zones) is built from the 202
 `--session 9896 --id 2025-race --label "2025 Race" --city`, which also rebuilds `data/city.json`.
 Other sessions on the same layout reuse it with `--track-from`. Races (and sprints) get a grid, start
 lights and a lap counter; practice and qualifying get a best-lap timing tower and a session clock.
+Knockout qualifying shows the Q1/Q2/Q3 clock (paused during red flags), the live elimination
+cut line and greys out eliminated drivers. Sessions that overrun (red flags, delays) are fetched up
+to their last chequered flag.
 2026 cars have no DRS, so DRS zones and the DRS badge are hidden for 2026 sessions.
 
 `race.bin` is `int16[driver][frame][4]` at 4 Hz: `f0, f1, speed_kph, packed`, where `packed` holds

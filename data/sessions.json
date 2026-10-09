@@ -1,5 +1,13 @@
 [
  {
+  "id": "2026-sq",
+  "label": "2026 Sprint Quali",
+  "name": "Sprint Qualifying",
+  "year": 2026,
+  "date": "2026-10-09T12:30:00+00:00",
+  "is_race": false
+ },
+ {
   "id": "2026-fp1",
   "label": "2026 FP1",
   "name": "Practice 1",

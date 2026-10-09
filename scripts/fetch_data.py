@@ -69,13 +69,22 @@ def main():
     get(f"{API}/sessions?session_key={args.session}", f"{raw}/sessions.json")
     session = json.load(open(f"{raw}/sessions.json"))[0]
     json.dump(session, open(f"{raw}/session.json", "w"), indent=1)
-    start = datetime.fromisoformat(session["date_start"]) - timedelta(minutes=5)
-    end = datetime.fromisoformat(session["date_end"]) + timedelta(minutes=25 if session["session_type"] == "Race" else 10)
-    window = f"date>{iso(start)}&date<{iso(end)}"
-
     for ep in ("drivers", "laps", "position", "race_control", "pit", "stints",
                "session_result", "intervals", "weather", "overtakes"):
         get(f"{API}/{ep}?session_key={args.session}", f"{raw}/{ep}.json")
+
+    # Sessions overrun their scheduled end (red flags, delayed starts), so stretch the window to
+    # the last chequered flag / lap that actually happened.
+    start = datetime.fromisoformat(session["date_start"]) - timedelta(minutes=5)
+    end = datetime.fromisoformat(session["date_end"])
+    for m in json.load(open(f"{raw}/race_control.json")):
+        if m.get("flag") == "CHEQUERED" or m["category"] == "SessionStatus":
+            end = max(end, datetime.fromisoformat(m["date"]))
+    for lap in json.load(open(f"{raw}/laps.json")):
+        if lap["date_start"]:
+            end = max(end, datetime.fromisoformat(lap["date_start"]) + timedelta(seconds=lap["lap_duration"] or 0))
+    end += timedelta(minutes=25 if session["session_type"] == "Race" else 5)
+    window = f"date>{iso(start)}&date<{iso(end)}"
     for d in json.load(open(f"{raw}/drivers.json")):
         n = d["driver_number"]
         get(f"{API}/location?session_key={args.session}&driver_number={n}&{window}", f"{raw}/loc/{n}.json")

@@ -261,6 +261,31 @@ export class Race {
     return this.drivers[k].pitWindows.some(p => t >= p.t - 2 && t <= p.t + (p.lane || 25));
   }
 
+  // qualifying phase at time t: {phase, left (s), state: 'running' | 'paused' | 'before' | 'done'}
+  qualiPhase(t) {
+    const P = this.session && this.session.phases;
+    if (!P || !P.length) return null;
+    for (const ph of P) {
+      if (t < ph.start) return { phase: ph, state: 'before', left: ph.start - t };
+      if (t <= ph.end) {
+        let paused = 0, inPause = false;
+        for (const [a, b] of ph.pauses) {
+          if (t > a) paused += Math.min(t, b) - a;
+          if (t >= a && t < b) inPause = true;
+        }
+        const left = Math.max(0, ph.minutes * 60 - (t - ph.start - paused));
+        return { phase: ph, state: inPause ? 'paused' : 'running', left };
+      }
+    }
+    return { phase: P[P.length - 1], state: 'done', left: 0 };
+  }
+
+  // grid positions that drop out at the end of Q1 and Q2 (22 cars: 6 + 6; 20 cars: 5 + 5)
+  qualiCuts() {
+    const n = this.drivers.length;
+    return [n >= 22 ? 16 : 15, 10];
+  }
+
   pitCount(k, t) {
     return this.drivers[k].pitWindows.filter(p => p.t + 3 < t).length;
   }
@@ -301,9 +326,9 @@ export class Race {
       const sec = (msg.match(/SECTOR (\d+)/) || [])[1];
       if (flag === 'YELLOW' || flag === 'DOUBLE YELLOW') { if (sec) yellow.add(sec); }
       else if (flag === 'CLEAR' && sec) yellow.delete(sec);
-      else if (flag === 'GREEN') yellow.clear();
+      else if (flag === 'GREEN') { yellow.clear(); if (status === 'RED') status = 'GREEN'; chequered = false; }
       else if (flag === 'RED') status = 'RED';
-      else if (flag === 'CHEQUERED') chequered = true;
+      else if (flag === 'CHEQUERED') { chequered = true; status = 'GREEN'; }
     }
     if (chequered) label = 'CHEQUERED';
     else if (status !== 'GREEN') label = status;

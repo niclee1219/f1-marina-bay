@@ -46,6 +46,18 @@ SESSION = json.load(open(os.path.join(RAW, "session.json")))
 IS_RACE = SESSION["session_type"] == "Race"  # covers Sprint too (OpenF1 session_type "Race")
 # start just before the session opens (grid / formation lap for races)
 T0 = datetime.fromisoformat(SESSION["date_start"]) - timedelta(seconds=30)
+IS_QUALI = "Qualifying" in SESSION["session_name"] or SESSION["session_name"] == "Sprint Shootout"
+# phase lengths (minutes) for the knockout sessions
+QUALI_MINUTES = [12, 10, 8] if SESSION["session_name"] in ("Sprint Qualifying", "Sprint Shootout") else [18, 15, 12]
+
+
+def session_end_ts():
+    """Scheduled end, or the last chequered flag when the session overran."""
+    end = ts(SESSION["date_end"])
+    for m in load("race_control.json"):
+        if m.get("flag") == "CHEQUERED":
+            end = max(end, ts(m["date"]))
+    return end
 
 
 def ts(s):
@@ -133,7 +145,7 @@ def main():
     if IS_RACE:
         dur = max(lap_ends) + 210
     else:
-        dur = max(ts(SESSION["date_end"]) + 150, max(lap_ends) + 60)
+        dur = max(session_end_ts() + 150, max(lap_ends) + 60)
     T1 = T0 + timedelta(seconds=dur)
 
     # alignment reference: a quick, clean lap (median-fast lap avoids odd outliers)
@@ -385,6 +397,10 @@ def frames_and_meta(loc, car, laps, pits, nums, drivers, xf, track, T1):
     for v in lap_rows.values():
         v.sort()
     result = {r["driver_number"]: r for r in load("session_result.json")}
+    if not result:
+        # official classification not published yet: use the final timing-screen order
+        for p in sorted(load("position.json"), key=lambda p: p["date"]):
+            result[p["driver_number"]] = {"position": p["position"]}
     intervals = {}
     for r in load("intervals.json"):
         t_ = ts(r["date"])
@@ -419,7 +435,7 @@ def frames_and_meta(loc, car, laps, pits, nums, drivers, xf, track, T1):
         "event": f"Singapore Grand Prix {year}", "circuit": "Marina Bay Street Circuit",
         "session": {"key": SESSION["session_key"], "name": SESSION["session_name"], "type": SESSION["session_type"],
                     "is_race": IS_RACE, "date": SESSION["date_start"][:10], "id": ARGS.id, "label": ARGS.label,
-                    "end": rnd(ts(SESSION["date_end"]))},
+                    "end": rnd(session_end_ts()), "phases": quali_phases()},
         "t0": T0.isoformat(), "hz": HZ, "frames": nframes,
         "race_start": rnd(start),
         "total_laps": max(l["lap_number"] for l in laps) if IS_RACE else None,
@@ -445,6 +461,39 @@ def frames_and_meta(loc, car, laps, pits, nums, drivers, xf, track, T1):
     }
     json.dump(race, open(os.path.join(OUT, "race.json"), "w"), separators=(",", ":"))
     print("frames", frames.shape, "written to", OUT)
+
+
+def quali_phases():
+    """Q1/Q2/Q3 windows from race control; red-flag stoppages pause the phase clock."""
+    if not IS_QUALI:
+        return None
+    phases = {}
+    for m in load("race_control.json"):
+        q = m.get("qualifying_phase")
+        if not q or m["category"] != "SessionStatus":
+            continue
+        ph = phases.setdefault(q, {"n": q, "start": None, "end": None, "pauses": []})
+        t = round(ts(m["date"]), 1)
+        if "STARTED" in m["message"]:
+            if ph["start"] is None:
+                ph["start"] = t
+            elif ph["pauses"] and ph["pauses"][-1][1] is None:
+                ph["pauses"][-1][1] = t
+        elif "ABORTED" in m["message"] or "SUSPENDED" in m["message"]:
+            ph["pauses"].append([t, None])
+        elif "FINISHED" in m["message"] or "ENDED" in m["message"]:
+            ph["end"] = t
+    prefix = "SQ" if "Sprint" in SESSION["session_name"] else "Q"
+    out = []
+    for q in sorted(phases):
+        ph = phases[q]
+        if ph["start"] is None:
+            continue
+        ph["name"] = f"{prefix}{q}"
+        ph["minutes"] = QUALI_MINUTES[q - 1] if q <= 3 else None
+        ph["pauses"] = [p for p in ph["pauses"] if p[1] is not None]
+        out.append(ph)
+    return out
 
 
 def update_index():

@@ -92,6 +92,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   border-bottom: 1px solid var(--line);
 }
 .row:hover { background: rgba(255,255,255,.05); }
+.row.out { opacity: .42; }
+.cutline { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--f1-red); z-index: 2; box-shadow: 0 0 8px var(--f1-red); transition: transform .4s; pointer-events: none; }
 .row.focus { background: linear-gradient(90deg, color-mix(in srgb, var(--team) 40%, transparent), transparent 85%); }
 .row .p { font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
 .row .team { width: 4px; height: 15px; border-radius: 2px; background: var(--team); }

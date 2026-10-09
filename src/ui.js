@@ -127,11 +127,26 @@ export class UI {
   updatePracticeTower(t, order, focusK, timing, cars) {
     const race = this.race;
     const best = timing.best.lap;
+    // qualifying: drivers knocked out in earlier phases are greyed, the live cut-off is marked
+    const q = race.qualiPhase(t);
+    let outFrom = Infinity, cutAt = null;
+    if (q) {
+      const [c1, c2] = race.qualiCuts();
+      const n = q.phase.n;
+      // phases fully completed so far decide who is out; the running phase shows its cut line
+      const completed = q.state === 'done' ? n : n - 1;
+      if (completed >= 2) outFrom = c2; else if (completed === 1) outFrom = c1;
+      if (q.state === 'running' || q.state === 'paused') cutAt = n === 1 ? c1 : n === 2 ? c2 : null;
+    }
+    const line = $('#cutline');
+    line.hidden = cutAt == null;
+    if (cutAt != null) line.style.transform = `translateY(calc(${cutAt} * var(--row-h) - 1px))`;
     order.forEach((d, i) => {
       const r = this.rows.get(d.k);
       r.row.style.transform = `translateY(${i * 100}%)`;
       r.p.textContent = i + 1;
       r.row.classList.toggle('focus', d.k === focusK);
+      r.row.classList.toggle('out', i >= outFrom);
       const pb = timing.pb[d.k].lap;
       let gapTxt;
       if (pb === Infinity) gapTxt = 'NO TIME';
@@ -303,7 +318,16 @@ export class UI {
       $('#lap-now').textContent = t < race.race_start ? '—' : Math.min(lap, race.total_laps);
       $('#lap-total').textContent = race.total_laps;
     } else {
-      $('#lap-now').textContent = fmtClock(Math.max(0, race.raceEnd - Math.max(t, race.race_start)));
+      const q = race.qualiPhase(t);
+      if (q) {
+        // knockout qualifying: phase clock (stops during red flags), countdown to the next phase
+        const lbl = $('.lapbox .lbl');
+        if (q.state === 'before') { lbl.textContent = `${q.phase.name} STARTS IN`; $('#lap-now').textContent = fmtClock(q.left); }
+        else if (q.state === 'done') { lbl.textContent = q.phase.name; $('#lap-now').textContent = 'FINISHED'; }
+        else { lbl.textContent = `${q.phase.name} TIME LEFT`; $('#lap-now').textContent = fmtClock(q.left); }
+      } else {
+        $('#lap-now').textContent = fmtClock(Math.max(0, race.raceEnd - Math.max(t, race.race_start)));
+      }
     }
     const fs = race.flagState(t);
     const chip = $('#flag');
