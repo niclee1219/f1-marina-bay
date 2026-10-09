@@ -4,6 +4,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { obb, toWorld } from './skyline.js';
+import { PIT_SIGN } from './config.js';
+import { OVERVIEW } from './camera.js';
 
 const G0 = 6.5, L1 = 11, L2 = 16;     // garage roof, office roof, Paddock Club roof (m)
 const DEPTH = 30;                      // building depth from the pit-lane face
@@ -23,6 +25,79 @@ function teamBoards(teams) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+// One cell per letter: top row crisp (alpha-tested face), bottom row blurred (backlight halo).
+function letterAtlas(word) {
+  const cw = 256, ch = 320, c = document.createElement('canvas');
+  c.width = cw * word.length; c.height = ch * 2;
+  const x = c.getContext('2d');
+  const base = ch * 0.8;
+  x.font = `900 ${Math.round(ch * 0.8)}px "Titillium Web", sans-serif`;
+  x.textAlign = 'center'; x.textBaseline = 'alphabetic';
+  const cap = x.measureText('S').actualBoundingBoxAscent || ch * 0.57;
+  const widths = [];
+  [...word].forEach((L, i) => {
+    widths.push(x.measureText(L).width);
+    x.fillStyle = '#fff';
+    x.filter = 'none';
+    x.fillText(L, cw * (i + 0.5), base);
+    x.filter = 'blur(16px)';
+    x.strokeStyle = '#fff'; x.lineWidth = 26; x.lineJoin = 'round';
+    x.strokeText(L, cw * (i + 0.5), ch + base);
+    x.fillText(L, cw * (i + 0.5), ch + base);
+  });
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return { tex, cw, ch, base, cap, widths };
+}
+
+// Backlit SINGAPORE letters standing along the roof, on a dark steel truss. Built facing local
+// +z with the word centred on x = 0; `flip` turns it to face -z (still reading left to right).
+function roofSign(len, flip) {
+  const S = PIT_SIGN, word = S.word, n = word.length;
+  const A = letterAtlas(word), k = S.height / A.cap;       // metres per atlas pixel
+  const pw = A.cw * k, ph = A.ch * k;
+  const span = len * S.fill, pitch = span / n;
+  const bottom = S.lift;
+  const face = [], halo = [], truss = [];
+  for (let i = 0; i < n; i++) {
+    const xc = -span / 2 + (i + 0.5) * pitch;
+    const yc = bottom + (A.base - A.ch / 2) * k;           // baseline sits on `bottom`
+    for (const [list, row, scale, dz] of [[face, 0, 1, 0], [halo, 1, 1.18, -0.9]]) {
+      const g = new THREE.PlaneGeometry(pw * scale, ph * scale);
+      const uv = g.attributes.uv;
+      for (let q = 0; q < uv.count; q++) uv.setXY(q, (i + uv.getX(q)) / n, (1 - row) * 0.5 + uv.getY(q) * 0.5);
+      list.push(g.translate(xc, yc + (scale - 1) * ph * 0.08, dz));
+    }
+    // a post behind every letter down to the roof
+    const lw = A.widths[i] * k;
+    for (const s of [-0.3, 0.3]) truss.push(new THREE.BoxGeometry(0.35, bottom + S.height * 0.9, 0.35).translate(xc + s * lw, (bottom + S.height * 0.9) / 2, -1.6));
+  }
+  // horizontal chords and a diagonal brace line
+  for (const y of [bottom - 0.4, bottom + S.height * 0.55]) truss.push(new THREE.BoxGeometry(span, 0.5, 0.5).translate(0, y, -1.6));
+  for (let i = 0; i < n; i++) {
+    const g = new THREE.BoxGeometry(0.22, Math.hypot(pitch, S.height * 0.55), 0.22);
+    g.rotateZ(Math.atan2(pitch, S.height * 0.55) * (i % 2 ? 1 : -1));
+    truss.push(g.translate(-span / 2 + (i + 0.5) * pitch, bottom + S.height * 0.27, -1.7));
+  }
+  // matte black board behind the letters: the halo glows on it, and it keeps the white faces
+  // readable against the floodlit roof and the city lights beyond
+  const board = new THREE.BoxGeometry(span + pitch * 0.25, S.height * 1.45, 0.3).translate(0, bottom + S.height * 0.48, -1.15);
+  const geos = { face: mergeGeometries(face), halo: mergeGeometries(halo), truss: mergeGeometries(truss), board };
+  if (flip) Object.values(geos).forEach(g => g.rotateY(Math.PI));
+  const mats = {
+    face: new THREE.MeshBasicMaterial({ map: A.tex, color: new THREE.Color(...S.face), alphaTest: 0.5, side: THREE.DoubleSide }),
+    halo: new THREE.MeshBasicMaterial({ map: A.tex, color: new THREE.Color(...S.halo), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+    truss: new THREE.MeshStandardMaterial({ color: 0x1a1c22, metalness: 0.6, roughness: 0.5 }),
+    board: new THREE.MeshBasicMaterial({ color: 0x040406 }),
+  };
+  return Object.entries(geos).map(([key, geo]) => {
+    const m = new THREE.Mesh(geo, mats[key]);
+    m.name = `pit-sign-${key}`;
+    return m;
+  });
 }
 
 export function buildPitComplex(g, city, race, track) {
@@ -145,6 +220,21 @@ export function buildPitComplex(g, city, race, track) {
   });
   g.add(new THREE.Mesh(place(mergeGeometries(ag)), new THREE.MeshBasicMaterial({ vertexColors: true })));
   g.add(new THREE.Mesh(place(mergeGeometries(boards)), new THREE.MeshBasicMaterial({ map: boardTex, color: new THREE.Color(1.3, 1.3, 1.3) })));
+
+  // rooftop SINGAPORE sign, on the roof edge that faces the default overview camera
+  const camOsm = [OVERVIEW.wide.pos[0], -OVERVIEW.wide.pos[2]];
+  const zWorld = [Math.sin(a), -Math.cos(a)];
+  const towardCam = (camOsm[0] - cx) * zWorld[0] + (camOsm[1] - cy) * zWorld[1] >= 0;
+  const signZ = towardCam ? front - 2 : front - DEPTH + 3;
+  for (const m of roofSign(len, !towardCam)) {
+    m.geometry.translate(0, L2 + 0.8, signZ);
+    place(m.geometry);
+    g.add(m);
+    if (m.name === 'pit-sign-face') {
+      m.geometry.computeBoundingBox();
+      out.signBox = m.geometry.boundingBox;   // world space (the pit group sits at the origin)
+    }
+  }
 
   // pit-exit light: red / green signal on a post at the end of the lane
   const exit = pitPts[Math.max(0, pitPts.length - 4)], prev = pitPts[pitPts.length - 6] || pitPts[0];

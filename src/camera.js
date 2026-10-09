@@ -3,6 +3,15 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 export const MODES = ['orbit', 'tv', 'chase', 'onboard', 'heli'];
+// Opening aerial shots (scene coordinates). `narrow` is used on portrait / phone screens.
+export const OVERVIEW = {
+  // from Marina Bay East: the pit building broadside (its rooftop sign reads between the
+  // timing tower and the driver card), the Flyer, Marina Centre and the CBD skyline behind
+  wide: { pos: [1230, 390, 170], target: [400, 0, -90], fov: 42 },
+  // same view for phones: wider lens, aimed so the sign sits between the timing tower and minimap
+  narrow: { pos: [1140, 470, 187], target: [410, 0, -233], fov: 52 },
+};
+
 export const MODE_LABELS = { orbit: 'Free', tv: 'Broadcast', chase: 'Chase', onboard: 'Onboard', heli: 'Helicopter' };
 
 export class Director {
@@ -48,10 +57,10 @@ export class Director {
   }
 
   overview() {
-    // Looking north-west over the bay: Marina Bay Sands foreground right, Flyer and the CBD behind.
-    this.camera.position.set(400, 980, 1380);
-    this.controls.target.set(-50, 0, -40);
-    this.camera.fov = 42;
+    const v = this.camera.aspect < 1 ? OVERVIEW.narrow : OVERVIEW.wide;
+    this.camera.position.set(...v.pos);
+    this.controls.target.set(...v.target);
+    this.camera.fov = v.fov;
     this.camera.updateProjectionMatrix();
     this.controls.update();
   }

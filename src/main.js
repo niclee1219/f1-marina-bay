@@ -166,6 +166,25 @@ async function boot() {
     renderer.setSize(w, h); composer.setSize(w, h); labelRenderer.setSize(w, h);
   });
 
+  // driver labels inside the rooftop sign's screen rectangle are faded (see Cars.update)
+  const signRect = { x0: 0, x1: 0, y0: 0, y1: 0 }, tmpV = new THREE.Vector3();
+  function updateSignRect() {
+    const b = pit.signBox;
+    signRect.x0 = signRect.y0 = Infinity; signRect.x1 = signRect.y1 = -Infinity;
+    if (!b) return;
+    for (let k = 0; k < 8; k++) {
+      tmpV.set(k & 1 ? b.max.x : b.min.x, k & 2 ? b.max.y : b.min.y, k & 4 ? b.max.z : b.min.z).project(camera);
+      if (tmpV.z > 1) { signRect.x0 = Infinity; return; }   // behind the camera
+      signRect.x0 = Math.min(signRect.x0, tmpV.x); signRect.x1 = Math.max(signRect.x1, tmpV.x);
+      signRect.y0 = Math.min(signRect.y0, tmpV.y); signRect.y1 = Math.max(signRect.y1, tmpV.y);
+    }
+  }
+  state.opts.labelMask = (p) => {
+    tmpV.copy(p).project(camera);
+    // labels hang above the car: test a little above its projected position
+    return tmpV.x > signRect.x0 - 0.02 && tmpV.x < signRect.x1 + 0.02 && tmpV.y > signRect.y0 - 0.08 && tmpV.y < signRect.y1 + 0.02;
+  };
+
   // ---------------------------------------------------------------- loop
   const clock = new THREE.Clock();
   let uiAcc = 1, slowAcc = 1, order = race.order(state.t), timing = race.timing(state.t);
@@ -176,6 +195,7 @@ async function boot() {
       if (state.t >= race.duration) { state.t = race.duration; state.playing = false; ui.setPlaying(false); }
     }
     const t = state.t;
+    updateSignRect();
     cars.update(t, state.playing ? dt * state.speed : 0, camera.position, state.focusK, state.opts);
     state.opts.jumped = false;
     director.update(dt, cars.cars[state.focusK], state.playing);

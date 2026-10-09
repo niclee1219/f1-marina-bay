@@ -174,6 +174,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   font: 700 11px/1 var(--font); letter-spacing: .05em; color: #fff; pointer-events: auto; cursor: pointer; white-space: nowrap;
   transform-origin: bottom center;
 }
+.car-label.masked { opacity: 0.12; }
 .car-label .bar { width: 3px; height: 12px; border-radius: 2px; }
 .car-label .pos { color: var(--muted); font-size: 10px; }
 .car-label .num { font-style: italic; font-weight: 900; font-size: 10px; color: var(--muted); min-width: 1.4em; text-align: right; }
@@ -304,7 +305,7 @@ kbd { font: 700 11px var(--font); background: #2a2a33; padding: 1px 6px; border-
   .seg button { padding: 4px 6px; font-size: 11px; }
   .toggles, #help-btn, #fs { display: none; }
 }
-@media (max-width: 380px) {
+@media (max-width: 440px) {
   /* the title gets its own row so SINGAPORE is never squeezed */
   .brand { flex-basis: 100%; }
   #tower { top: 150px; width: 148px; }

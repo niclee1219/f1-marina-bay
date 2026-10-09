@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- Dev-only QA harness: the app at phone size (390 x 844 CSS px), e.g. /qa/phone.html?w=390&h=844 -->
+<html><head><meta charset="utf-8"><title>Phone QA</title>
+<style>body{margin:0;background:#222;display:flex;gap:16px;padding:8px}iframe{border:0;background:#000;transform-origin:0 0}</style></head>
+<body>
+<script>
+  const q = new URLSearchParams(location.search);
+  const w = +(q.get('w') || 390), h = +(q.get('h') || 844), hash = q.get('s') || '2026-sq';
+  const f = document.createElement('iframe');
+  f.width = w; f.height = h; f.src = `../?debug#${hash}`;
+  const k = Math.min(1, (innerHeight - 16) / h);
+  f.style.transform = `scale(${k})`;
+  document.body.appendChild(f);
+  window.app = () => f.contentWindow;
+</script>
+</body></html>

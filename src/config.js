@@ -97,5 +97,16 @@ export const CROWD = {
   padangStand: { s: 2390, len: 130, toward: [-682, 78] },
 };
 
+// Backlit lettering standing on the pit building roof (pit.js). Sized to read from the default
+// overview camera: letters are spread along the whole roof and face the side that camera sees.
+export const PIT_SIGN = {
+  word: 'SINGAPORE',
+  height: 19,          // letter cap height (m)
+  lift: 3.5,           // gap between the roof slab and the bottom of the letters (truss)
+  fill: 0.88,          // fraction of the roof length the word spans
+  face: [1.12, 1.1, 1.05],  // letter face (just over 1 so bloom adds a soft edge without smearing)
+  halo: [1.0, 0.06, 0.08],   // backlight glow behind the letters (F1 red)
+};
+
 // Title wordmark shown in the HUD.
 export const TITLE = { word: 'SINGAPORE', sub: 'GRAND PRIX' };
