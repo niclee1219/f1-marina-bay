@@ -32,6 +32,18 @@ built from real OpenStreetMap footprints.
   (T-cam) and **Helicopter**.
 - **Night look.** Floodlit asphalt with light pools, light towers, lit windows, aircraft beacons,
   water reflections, bloom and team-coloured light trails.
+- **Hand-built landmarks** (`src/skyline.js`) on their OSM footprints: Marina Bay Sands with leaning
+  east legs and the boat-shaped SkyPark, the Singapore Flyer, the Esplanade's spiked "durian" domes,
+  City Hall, the Old Supreme Court dome, the Supreme Court disc, the Cricket Club, the ArtScience
+  Museum lotus and CBD towers (UOB Plaza, OCBC Centre, One Raffles Quay). Distant skyline layers,
+  searchlights and fireworks add depth.
+- **Bridges** (`src/bridges.js`): Anderson Bridge (steel arches, stone portals) and Esplanade Bridge
+  (concrete arches). Each is a shade zone along the track that darkens the asphalt and every car on it.
+- **Pit complex, crowds, cars**: a three-level pit building with garages, Paddock Club and rooftop
+  deck (`src/pit.js`); ~21k instanced spectators that wave and flash phone lights as cars pass
+  (`src/crowd.js`); detailed cars with team liveries, numbers, brake glow and kerb sparks.
+- **Trackside boards** are drawn as text wordmarks from the `SPONSORS` list in `src/config.js`
+  (no logo files). Colours, liveries, landmarks, bridge zones and crowd density live there too.
 
 ## Controls
 

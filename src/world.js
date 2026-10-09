@@ -70,7 +70,7 @@ const WINDOW_GLSL = /* glsl */`
 
 const buildingTime = { value: 0 };
 
-function buildingMaterial() {
+export function buildingMaterial() {
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.35, vertexColors: true });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = buildingTime;
@@ -141,6 +141,20 @@ function buildingMaterial() {
   return mat;
 }
 
+// Geometry for buildingMaterial(): non-indexed, no uv, with per-vertex seed / roof height / colour.
+export function tagBuilding(g, seed, top, color) {
+  g = g.index ? g.toNonIndexed() : g;
+  if (g.attributes.uv) g.deleteAttribute('uv');
+  if (!g.attributes.normal) g.computeVertexNormals();
+  const n = g.attributes.position.count;
+  g.setAttribute('aSeed', new THREE.Float32BufferAttribute(new Float32Array(n).fill(seed), 1));
+  g.setAttribute('aTop', new THREE.Float32BufferAttribute(new Float32Array(n).fill(top), 1));
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { col[i * 3] = color.r; col[i * 3 + 1] = color.g; col[i * 3 + 2] = color.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
 // footprint ring scaled about its centroid, as a Shape
 function scaledShape(flat, k) {
   const c = centroid(flat);
@@ -151,7 +165,7 @@ function scaledShape(flat, k) {
   return new THREE.Shape(pts);
 }
 
-export function buildCity(scene, city) {
+export function buildCity(scene, city, hidden = () => false) {
   const group = new THREE.Group();
   scene.add(group);
 
@@ -195,17 +209,11 @@ export function buildCity(scene, city) {
     const g = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.5, to - from), bevelEnabled: false });
     g.rotateX(-Math.PI / 2);
     g.translate(0, from, 0);
-    g.deleteAttribute('uv');
-    const n = g.attributes.position.count;
-    g.setAttribute('aSeed', new THREE.Float32BufferAttribute(new Float32Array(n).fill(seed), 1));
-    g.setAttribute('aTop', new THREE.Float32BufferAttribute(new Float32Array(n).fill(top), 1));
-    const col = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) { col[i * 3] = color.r; col[i * 3 + 1] = color.g; col[i * 3 + 2] = color.b; }
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    geos.push(g);
+    geos.push(tagBuilding(g, seed, top, color));
   };
   city.buildings.forEach((b, idx) => {
     if (b.dome) { domes.push(b); return; }
+    if (hidden(b.n)) return;   // modelled by hand in skyline.js / pit.js
     const shape = ringToShape(b.p);
     const area = Math.abs(THREE.ShapeUtils.area(shape.getPoints()));
     if (area < 6) return;
@@ -252,17 +260,8 @@ export function buildCity(scene, city) {
   beacons.forEach((p, i) => bInst.setMatrixAt(i, m4.makeTranslation(p.x, p.y, p.z)));
   group.add(bInst);
 
-  // Esplanade "durian" domes
-  for (const b of domes) group.add(makeDome(b));
-
-  // Marina Bay Sands SkyPark across the three towers
-  const towers = city.buildings.filter(b => /^Marina Bay Sands Tower/.test(b.n || ''))
-    .sort((a, b) => a.n.localeCompare(b.n));
-  if (towers.length === 3) group.add(makeSkyPark(towers));
-
   const animated = [];
   for (const lm of city.landmarks) {
-    if (lm.type === 'flyer') group.add(makeFlyer(lm));
     if (lm.type === 'stage') group.add(makeStage(lm, animated, lm.name === 'Padang' ? 1 : 0.7));
   }
   // building height at a scene position (0 if open ground), for camera line-of-sight checks
@@ -300,7 +299,7 @@ export function buildCity(scene, city) {
     buildingTime.value += dt;
     for (const f of animated) f(dt, buildingTime.value);
   };
-  return { group, beacons: bInst, update, heightAt };
+  return { group, beacons: bInst, update, heightAt, domes, animated };
 }
 
 export function buildWater(scene, city, renderer) {
@@ -475,130 +474,8 @@ function makeStage(lm, animated, k) {
   return g;
 }
 
-function makeDome(b) {
-  let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
-  for (let i = 0; i < b.p.length; i += 2) {
-    minx = Math.min(minx, b.p[i]); maxx = Math.max(maxx, b.p[i]);
-    miny = Math.min(miny, b.p[i + 1]); maxy = Math.max(maxy, b.p[i + 1]);
-  }
-  const geo = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x8c7f6c, metalness: 0.6, roughness: 0.35 });
-  mat.onBeforeCompile = (s) => {
-    s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vLocal;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLocal = position;');
-    s.fragmentShader = s.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vLocal;')
-      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        float a = atan(vLocal.z, vLocal.x) * 24.0 / 3.14159;
-        float e = asin(clamp(vLocal.y, 0.0, 1.0)) * 16.0;
-        vec2 f = fract(vec2(a + e * 0.5, e));
-        float tri = step(abs(f.x - 0.5) * 2.0, f.y);
-        diffuseColor.rgb *= mix(0.45, 1.1, tri);
-        totalEmissiveRadiance += vec3(1.0, 0.75, 0.45) * (1.0 - tri) * 0.12 * smoothstep(0.0, 0.3, vLocal.y);`);
-  };
-  const m = new THREE.Mesh(geo, mat);
-  m.scale.set((maxx - minx) / 2, b.h, (maxy - miny) / 2);
-  m.position.set((minx + maxx) / 2, 0, -(miny + maxy) / 2);
-  return m;
-}
-
-function centroid(flat) {
+export function centroid(flat) {
   let x = 0, y = 0;
   for (let i = 0; i < flat.length; i += 2) { x += flat[i]; y += flat[i + 1]; }
   return new THREE.Vector2(x / (flat.length / 2), y / (flat.length / 2));
-}
-
-function makeSkyPark(towers) {
-  const c = towers.map(t => centroid(t.p));
-  const a = c[0], b = c[2];
-  const dir = new THREE.Vector2().subVectors(b, a);
-  const len = dir.length();
-  const mid = new THREE.Vector2().addVectors(a, b).multiplyScalar(0.5);
-  const g = new THREE.Group();
-  // hull: a long, slightly tapered boat
-  const shape = new THREE.Shape();
-  const L = len + 140, W = 38;
-  shape.moveTo(-L / 2, -W / 2 * 0.8);
-  shape.lineTo(L / 2 - 30, -W / 2);
-  shape.quadraticCurveTo(L / 2 + 10, 0, L / 2 - 30, W / 2);
-  shape.lineTo(-L / 2, W / 2 * 0.8);
-  shape.lineTo(-L / 2, -W / 2 * 0.8);
-  const hull = new THREE.ExtrudeGeometry(shape, { depth: 9, bevelEnabled: false });
-  hull.rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x3a4250, metalness: 0.7, roughness: 0.3, emissive: 0x0a0d14 });
-  const mesh = new THREE.Mesh(hull, mat);
-  g.add(mesh);
-  // glowing underside strip
-  const strip = new THREE.Mesh(new THREE.BoxGeometry(L - 40, 0.6, 2),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(1.1, 0.95, 0.8) }));
-  strip.position.set(-10, 0.2, W / 2 * 0.85);
-  g.add(strip);
-  const strip2 = strip.clone(); strip2.position.z = -W / 2 * 0.85; g.add(strip2);
-  // the pool line on top
-  const pool = new THREE.Mesh(new THREE.BoxGeometry(150, 0.4, 5),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 1.2, 2.0) }));
-  pool.position.set(L / 2 - 120, 9.3, W / 2 - 6);
-  g.add(pool);
-  g.position.set(mid.x, 193, -mid.y);
-  // shape x-axis along the towers; extrusion is in local frame (x, -y)
-  g.rotation.y = Math.atan2(dir.y, dir.x);
-  // cantilever pointing north (toward tower 1's far side)
-  return g;
-}
-
-function makeFlyer(lm) {
-  const g = new THREE.Group();
-  const R = 75, H = 165;
-  const cy = H - R;
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0xb8c2d0, metalness: 0.8, roughness: 0.3 });
-  const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.55, 0.95, 1.8) });
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(R, 0.9, 8, 160), rimMat);
-  rim.position.y = cy;
-  const rimGlow = new THREE.Mesh(new THREE.TorusGeometry(R + 1.2, 0.35, 6, 160), glow);
-  rimGlow.position.y = cy;
-  const rimGlow2 = new THREE.Mesh(new THREE.TorusGeometry(R - 3, 0.3, 6, 160), glow);
-  rimGlow2.position.y = cy;
-  g.add(rim, rimGlow, rimGlow2);
-  // spokes
-  const spokeGeo = [];
-  for (let i = 0; i < 28; i++) {
-    const a = i / 28 * Math.PI * 2;
-    const s = new THREE.CylinderGeometry(0.18, 0.18, R, 4);
-    s.translate(0, R / 2, 0);
-    s.rotateZ(a);
-    s.translate(0, cy, 0);
-    spokeGeo.push(s);
-  }
-  g.add(new THREE.Mesh(mergeGeometries(spokeGeo), new THREE.MeshBasicMaterial({ color: 0x6f7c90 })));
-  // capsules
-  const capGeo = new THREE.CapsuleGeometry(2.6, 6, 4, 12);
-  capGeo.rotateX(Math.PI / 2);
-  const caps = new THREE.InstancedMesh(capGeo,
-    new THREE.MeshStandardMaterial({ color: 0x223040, emissive: new THREE.Color(0.9, 1.0, 1.2), emissiveIntensity: 0.8 }), 28);
-  const m4 = new THREE.Matrix4();
-  for (let i = 0; i < 28; i++) {
-    const a = i / 28 * Math.PI * 2 + 0.11;
-    caps.setMatrixAt(i, m4.makeTranslation(Math.sin(a) * (R + 3), cy - Math.cos(a) * (R + 3), 0));
-  }
-  g.add(caps);
-  // hub and A-frame legs
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 16, 16), rimMat);
-  hub.rotation.x = Math.PI / 2; hub.position.y = cy;
-  g.add(hub);
-  for (const side of [-1, 1]) {
-    for (const lean of [-1, 1]) {
-      const legLen = Math.hypot(cy, 34);
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 2.2, legLen, 8), rimMat);
-      leg.position.set(lean * 17, cy / 2, side * 7);
-      leg.rotation.z = lean * Math.atan2(34, cy);
-      g.add(leg);
-    }
-  }
-  // terminal building beneath
-  const base = new THREE.Mesh(new THREE.BoxGeometry(150, 12, 40),
-    new THREE.MeshStandardMaterial({ color: 0x252a35, emissive: 0x141820 }));
-  base.position.set(0, 6, -40);
-  g.add(base);
-  g.position.set(lm.x, 0, -lm.y);
-  g.rotation.y = lm.dir; // wheel plane along the long axis of the OSM footprint
-  return g;
 }

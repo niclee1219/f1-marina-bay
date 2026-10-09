@@ -52,9 +52,18 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   pointer-events: none;
 }
 #hud-top > * { pointer-events: auto; }
-.brand { display: flex; align-items: center; gap: 12px; background: var(--panel); padding: 8px 16px 8px 12px; border-radius: 6px; backdrop-filter: blur(8px); border: 1px solid var(--line); }
-.ev-title { font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: .03em; font-size: 18px; line-height: 1.05; }
-.ev-sub { color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+.brand {
+  display: flex; align-items: center; gap: 12px; padding: 6px 18px 6px 12px; border-radius: 6px; backdrop-filter: blur(8px); border: 1px solid var(--line);
+  /* backlit plate: a red glow behind the wordmark on the dark panel */
+  background: radial-gradient(90% 140% at 32% 45%, rgba(225, 6, 0, .26), transparent 70%), rgba(10, 10, 16, .9);
+}
+.ev-title { font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 1; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.ev-word {
+  font-size: 30px; letter-spacing: .07em; color: #fff;
+  text-shadow: 0 0 1px #fff, 0 0 10px rgba(255, 60, 40, .65), 0 0 26px rgba(255, 30, 20, .45), 0 2px 0 rgba(0, 0, 0, .6);
+}
+.ev-gp { font-size: 12px; letter-spacing: .16em; color: #ff3b30; text-shadow: 0 0 8px rgba(255, 30, 20, .5); }
+.ev-sub { color: #b9b9c6; font-size: 11.5px; letter-spacing: .04em; margin-top: 3px; white-space: nowrap; }
 .lapbox { display: flex; align-items: baseline; gap: 6px; background: var(--panel); padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); backdrop-filter: blur(8px); }
 .lapbox .lbl { color: var(--muted); font-weight: 700; font-size: 12px; letter-spacing: .14em; align-self: center; }
 .lapbox .now { font-weight: 900; font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -72,7 +81,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* ---------------------------------------------------------------- tower */
 #tower {
-  position: fixed; left: 14px; top: 86px; z-index: 10; width: 238px;
+  position: fixed; left: 14px; top: 92px; z-index: 10; width: 238px;
   background: var(--panel); border-radius: 6px; border: 1px solid var(--line); backdrop-filter: blur(8px);
   overflow: hidden;
 }
@@ -108,7 +117,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .tyre { display: inline-grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; border: 2.5px solid var(--tc); font-size: 10px; font-weight: 900; color: var(--tc); background: #0e0e12; }
 
 /* ---------------------------------------------------------------- right side */
-#side { position: fixed; right: 14px; top: 86px; z-index: 10; width: 290px; display: grid; gap: 10px; }
+#side { position: fixed; right: 14px; top: 92px; z-index: 10; width: 290px; display: grid; gap: 10px; }
 .panel { background: var(--panel); border-radius: 6px; border: 1px solid var(--line); backdrop-filter: blur(8px); }
 .mm-panel { padding: 8px; }
 #minimap { width: 100%; height: 170px; display: block; }
@@ -167,6 +176,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 }
 .car-label .bar { width: 3px; height: 12px; border-radius: 2px; }
 .car-label .pos { color: var(--muted); font-size: 10px; }
+.car-label .num { font-style: italic; font-weight: 900; font-size: 10px; color: var(--muted); min-width: 1.4em; text-align: right; }
+.car-label.focus .num { color: var(--steel); }
 .car-label.focus { background: var(--text); color: var(--carbon); border-color: transparent; }
 .car-label.focus .pos { color: var(--steel); }
 
@@ -239,16 +250,24 @@ kbd { font: 700 11px var(--font); background: #2a2a33; padding: 1px 6px; border-
 /* ---------------------------------------------------------------- responsive */
 @media (max-width: 1100px) {
   #side { width: 240px; }
+  .ev-word { font-size: 26px; }
+  .ev-sub { max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
   #card .sectors, #card .kv:nth-of-type(n+4) { display: none; }
   #toasts { right: 266px; width: 260px; }
 }
 @media (max-height: 820px) and (min-width: 761px) {
-  :root { --row-h: 24px; }
-  #tower { top: 78px; }
-  #side { top: 78px; }
+  :root { --row-h: 23px; }
+  #tower { top: 88px; }
+  #side { top: 88px; }
   #minimap { height: 130px; }
   .gauge { height: 80px; }
   #card .kv:nth-of-type(n+3), #card .sectors { display: none; }
+}
+@media (max-height: 740px) and (min-width: 761px) {
+  :root { --row-h: 22px; }
+}
+@media (max-height: 700px) and (min-width: 761px) {
+  #tower:not(.collapsed) .tower-list { height: calc(var(--row-h) * 15); }
 }
 @media (max-height: 620px) and (min-width: 761px) {
   #card { display: none; }
@@ -259,7 +278,9 @@ kbd { font: 700 11px var(--font); background: #2a2a33; padding: 1px 6px; border-
   #hud-top { top: 8px; left: 8px; right: 8px; gap: 6px; flex-wrap: wrap; }
   .brand { padding: 6px 10px 6px 8px; flex: 1; min-width: 0; }
   .brand .slash { height: 26px; width: 10px; }
-  .ev-title { font-size: 14px; }
+  .ev-title { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .ev-word { font-size: 21px; letter-spacing: .05em; }
+  .ev-gp { font-size: 9.5px; letter-spacing: .22em; }
   .ev-sub { display: none; }
   .lapbox { padding: 6px 10px; }
   .sessions { order: 5; width: 100%; overflow-x: auto; }
@@ -273,7 +294,7 @@ kbd { font: 700 11px var(--font); background: #2a2a33; padding: 1px 6px; border-
   .tyre { width: 15px; height: 15px; font-size: 8px; border-width: 2px; }
   #tower:not(.expanded) .tower-list { height: calc(var(--row-h) * 10); }
   #tower.collapsed .tower-list { height: calc(var(--row-h) * 3); }
-  #side { top: auto; bottom: 150px; right: 8px; width: 150px; }
+  #side { top: auto; bottom: 186px; right: 8px; width: 150px; }
   #card { display: none; }
   #minimap { height: 100px; }
   .wx { display: none; }
@@ -282,4 +303,9 @@ kbd { font: 700 11px var(--font); background: #2a2a33; padding: 1px 6px; border-
   .opts { gap: 6px; }
   .seg button { padding: 4px 6px; font-size: 11px; }
   .toggles, #help-btn, #fs { display: none; }
+}
+@media (max-width: 380px) {
+  /* the title gets its own row so SINGAPORE is never squeezed */
+  .brand { flex-basis: 100%; }
+  #tower { top: 150px; width: 148px; }
 }

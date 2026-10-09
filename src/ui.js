@@ -1,6 +1,7 @@
 // Broadcast-style overlay: timing tower, driver card, minimap, timeline and race-control toasts.
 import { TYRES } from './data.js';
 import { MODES, MODE_LABELS } from './camera.js';
+import { TITLE } from './config.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -37,7 +38,8 @@ export class UI {
     this.buildMinimap();
     const s = race.session || { name: 'Race', date: '2025-10-05' };
     const date = new Date(`${s.date}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-    $('#ev-title').textContent = 'Singapore Grand Prix';
+    $('#ev-title').innerHTML = `<span class="ev-word">${TITLE.word}</span><span class="ev-gp">${TITLE.sub}</span>`;
+    $('#ev-title').setAttribute('aria-label', `${TITLE.word} ${TITLE.sub}`);
     $('#ev-sub').textContent = `${race.circuit} · ${s.name} · ${date}`;
     if (!race.isRace) {
       $('.th-title').textContent = s.name.toUpperCase();
