@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "f1-marina-bay",
+  "compatibility_date": "2026-10-06",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "."
+  },
+  "routes": [
+    { "pattern": "f1.pixolateds.com", "custom_domain": true },
+    // More specific than the snapshot Worker's *.pixolateds.com/* wildcard,
+    // which would otherwise run before the custom domain.
+    { "pattern": "f1.pixolateds.com/*", "zone_name": "pixolateds.com" }
+  ]
+}

@@ -1,0 +1,13 @@
+# Keep dev-only files out of the deployed site
+.git
+.gitignore
+.claude
+.wrangler
+.assetsignore
+wrangler.jsonc
+README.md
+docs
+scripts
+data/raw
+**/__pycache__
+.DS_Store
