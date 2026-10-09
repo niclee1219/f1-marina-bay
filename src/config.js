@@ -49,7 +49,7 @@ export const LIVERIES = {
 // Hand-built landmarks. `replaces` lists OSM building names whose plain extrusions are hidden
 // because the landmark is modelled here instead.
 export const LANDMARKS = {
-  mbs: { replaces: [/^Marina Bay Sands Tower/] },     // positions come from the OSM tower footprints
+  mbs: { replaces: [/^Marina Bay Sands Tower/, /^SkyPark$/] },     // positions come from the OSM tower footprints
   artScience: { x: 8, y: -452, h: 60, petals: 10 },
   padang: {
     cityHall: { match: 'Old City Hall', h: 27 },

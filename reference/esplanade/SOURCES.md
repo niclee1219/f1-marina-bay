@@ -1,0 +1,3 @@
+- `The_Esplanade_Theatres_on_the_Bay.jpg`: [File:The Esplanade – Theatres on the Bay.jpg](https://commons.wikimedia.org/wiki/File:The_Esplanade_%E2%80%93_Theatres_on_the_Bay.jpg), William Cho, CC BY-SA 2.0
+- `Singapore_Esplanade-Theatres-on-the-Bay-01.jpg`: [File:Singapore Esplanade-Theatres-on-the-Bay-01.jpg](https://commons.wikimedia.org/wiki/File:Singapore_Esplanade-Theatres-on-the-Bay-01.jpg), CEphoto, Uwe Aranas, CC BY-SA 3.0
+- `2016_Singapur_Downtown_Core_Esplanade_Theatres_on_the_Bay_06_.jpg`: [File:2016 Singapur, Downtown Core, Esplanade – Theatres on the Bay (06).jpg](https://commons.wikimedia.org/wiki/File:2016_Singapur,_Downtown_Core,_Esplanade_%E2%80%93_Theatres_on_the_Bay_(06).jpg), Marcin Konsek, CC BY-SA 4.0

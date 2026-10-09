@@ -1,0 +1,3 @@
+- `Saint_Andrew_s_Cathedral_Singapore_6.JPG`: [File:Saint Andrew's Cathedral, Singapore 6.JPG](https://commons.wikimedia.org/wiki/File:Saint_Andrew%27s_Cathedral,_Singapore_6.JPG), Terence Ong, CC BY 2.5
+- `Saint_Andrew_s_Cathedral_Singapore_7.JPG`: [File:Saint Andrew's Cathedral, Singapore 7.JPG](https://commons.wikimedia.org/wiki/File:Saint_Andrew%27s_Cathedral,_Singapore_7.JPG), Terence Ong, CC BY 2.5
+- `Singapore_SG_St_Andrew_s_Cathedral_--_2019_--_4715.jpg`: [File:Singapore (SG), St Andrew's Cathedral -- 2019 -- 4715.jpg](https://commons.wikimedia.org/wiki/File:Singapore_(SG),_St_Andrew%27s_Cathedral_--_2019_--_4715.jpg), Dietmar Rabich, CC BY-SA 4.0

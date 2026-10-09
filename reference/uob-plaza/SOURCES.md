@@ -1,0 +1,3 @@
+- `UOB_Plaza_with_Floodlights.jpg`: [File:UOB Plaza with Floodlights.jpg](https://commons.wikimedia.org/wiki/File:UOB_Plaza_with_Floodlights.jpg), Merlion444., Public domain
+- `UOB_Plaza_Singapore_-_20140831.jpg`: [File:UOB Plaza, Singapore - 20140831.jpg](https://commons.wikimedia.org/wiki/File:UOB_Plaza,_Singapore_-_20140831.jpg), ProjectManhattan., CC BY-SA 3.0
+- `Singapore_UOB_Plaza_01.jpg`: [File:Singapore UOB Plaza 01.jpg](https://commons.wikimedia.org/wiki/File:Singapore_UOB_Plaza_01.jpg), Zairon, CC BY-SA 4.0

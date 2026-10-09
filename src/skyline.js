@@ -3,33 +3,13 @@
 // Landmarks sit on their OSM footprints (city.json), so they line up with the track and the bay.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildingMaterial, tagBuilding, centroid } from './world.js';
+import { buildingMaterial, tagBuilding, centroid, obb, KIND } from './world.js';
+
+export { obb };
 import { COLORS, LANDMARKS } from './config.js';
 
 // ---------------------------------------------------------------- helpers
 const byName = (city, name) => city.buildings.find(b => b.n === name);
-
-// oriented bounding box of an OSM footprint: centre, long-axis angle (OSM radians), length, width
-export function obb(flat) {
-  let best = null;
-  for (let i = 0; i < flat.length; i += 2) {
-    const j = (i + 2) % flat.length;
-    const a = Math.atan2(flat[j + 1] - flat[i + 1], flat[j] - flat[i]);
-    const c = Math.cos(a), s = Math.sin(a);
-    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-    for (let k = 0; k < flat.length; k += 2) {
-      const u = flat[k] * c + flat[k + 1] * s, v = -flat[k] * s + flat[k + 1] * c;
-      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
-    }
-    const area = (u1 - u0) * (v1 - v0);
-    if (!best || area < best.area) {
-      const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
-      best = { area, a, cx: cu * c - cv * s, cy: cu * s + cv * c, len: u1 - u0, wid: v1 - v0 };
-    }
-  }
-  if (best.wid > best.len) { best.a += Math.PI / 2; [best.len, best.wid] = [best.wid, best.len]; }
-  return best;
-}
 
 // Local frame: +x along OSM angle a, +z toward OSM direction (sin a, -cos a), +y up.
 export function toWorld(g, cx, cy, a) {
@@ -149,8 +129,61 @@ function materials() {
 }
 
 // ---------------------------------------------------------------- Marina Bay Sands
-// Three towers, each a vertical west leg and a curved east leg that leans in to meet it at the
-// top, carrying the boat-shaped SkyPark that cantilevers past the north tower.
+// Three 55-storey hotel towers (~194 m) on a gentle arc. Each tower is two slabs: a vertical west
+// leg and an east leg that curves in to meet it near the top. The long east / west faces are
+// glass (warm hotel rooms, banded by floor); the narrow north / south ends carry the cream
+// structural edges that read from across the bay. The SkyPark (~340 m) is a boat-shaped hull with
+// a lit underside, its prow cantilevering ~66 m past the north tower.
+
+// One leg: glass on the long faces, cream edge strips around glass on the narrow ends.
+// secs: [{ y, cx, cz, w, d }] in tower-local metres (x along the tower line, z across it).
+function leg(secs, glass, cream, edge = 2.6) {
+  const quad = (out, A, B, C, D) => out.push(A, B, C, A, C, D);
+  const G = [], W = [];
+  for (let j = 1; j < secs.length; j++) {
+    const s0 = secs[j - 1], s1 = secs[j];
+    const P = (s, x, z) => [s.cx + x, s.y, s.cz + z];
+    const run = (out, x0, z0, x1, z1) => quad(out, P(s0, x0(s0), z0(s0)), P(s0, x1(s0), z1(s0)), P(s1, x1(s1), z1(s1)), P(s1, x0(s1), z0(s1)));
+    const hw = s => s.w / 2, hd = s => s.d / 2;
+    const neg = f => s => -f(s);
+    // long faces (+z, -z), left to right as seen from outside
+    run(G, neg(hw), hd, hw, hd);
+    run(G, hw, neg(hd), neg(hw), neg(hd));
+    // narrow ends (+x: z from + to -, -x: z from - to +), split into edge / glass / edge strips
+    const zs = [s => s.d / 2, s => s.d / 2 - edge, s => -s.d / 2 + edge, s => -s.d / 2];
+    for (let k = 0; k < 3; k++) run(k === 1 ? G : W, hw, zs[k], hw, zs[k + 1]);
+    for (let k = 3; k > 0; k--) run(k === 2 ? G : W, neg(hw), zs[k], neg(hw), zs[k - 1]);
+  }
+  const top = secs[secs.length - 1];
+  const t = (x, z) => [top.cx + x, top.y, top.cz + z];
+  quad(W, t(-top.w / 2, top.d / 2), t(top.w / 2, top.d / 2), t(top.w / 2, -top.d / 2), t(-top.w / 2, -top.d / 2));
+  const mk = list => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(list.flat(), 3));
+    g.computeVertexNormals();
+    return g;
+  };
+  glass.push(mk(G));
+  cream.push(mk(W));
+}
+
+// Loft cross-sections [[o, dy], ...] (o across, dy down from the deck) along local x stations.
+function hull(stations, profile, out) {
+  for (let e = 0; e + 1 < profile.length; e++) {
+    const pos = [];
+    for (let k = 1; k < stations.length; k++) {
+      const A = stations[k - 1], B = stations[k];
+      const p = (S, [o, dy]) => [S.x, S.y + dy * S.depth, S.zc + o * S.hw];
+      const a0 = p(A, profile[e]), a1 = p(A, profile[e + 1]), b0 = p(B, profile[e]), b1 = p(B, profile[e + 1]);
+      pos.push(...a0, ...b1, ...b0, ...a0, ...a1, ...b1);   // outward: profile direction turned +90 degrees
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    out.push(g);
+  }
+}
+
 function marinaBaySands(city, M, animated) {
   const g = new THREE.Group();
   const towers = city.buildings.filter(b => /^Marina Bay Sands Tower/.test(b.n || '')).sort((a, b) => a.n.localeCompare(b.n));
@@ -159,50 +192,84 @@ function marinaBaySands(city, M, animated) {
   const u = new THREE.Vector2().subVectors(c[2], c[0]).normalize();
   const a = Math.atan2(u.y, u.x);
   const H = 194;
-  const tint = new THREE.Color(0.30, 0.33, 0.38);
-  const geos = [];
+  const glassTint = new THREE.Color(0.2, 0.22, 0.26), creamTint = new THREE.Color(0.86, 0.82, 0.74);
+  const glass = [], cream = [];
   c.forEach((tc, k) => {
-    const west = stack([{ y: 0, cx: 0, cz: -13, w: 34, d: 16 }, { y: H, cx: 0, cz: -13, w: 34, d: 16 }]);
+    // each tower follows the arc: oriented along the chord of its neighbours
+    const p0 = c[Math.max(0, k - 1)], p1 = c[Math.min(2, k + 1)];
+    const ak = Math.atan2(p1.y - p0.y, p1.x - p0.x);
+    const G = [], W = [];
+    leg([{ y: 0, cx: 0, cz: -13, w: 36, d: 17 }, { y: H, cx: 0, cz: -13, w: 36, d: 17 }], G, W);
     const secs = [];
-    for (let j = 0; j <= 12; j++) {
-      const y = H * j / 12;
-      secs.push({ y, cx: 0, cz: 3 + 15 * Math.pow(1 - y / H, 1.6), w: 34, d: 16 });
+    for (let j = 0; j <= 16; j++) {
+      const y = H * j / 16;
+      secs.push({ y, cx: 0, cz: 4.5 + 15 * Math.pow(1 - y / H, 1.7), w: 36, d: 17 });
     }
-    const east = stack(secs);
-    for (const leg of [west, east]) {
-      geos.push(tagBuilding(toWorld(leg, tc.x, tc.y, a), 0.31 + k * 0.07, H, tint));
-    }
+    leg(secs, G, W);
+    for (const geo of G) glass.push(tagBuilding(toWorld(geo, tc.x, tc.y, ak), 0.31 + k * 0.07, H, glassTint, KIND.hotel));
+    for (const geo of W) cream.push(tagBuilding(toWorld(geo, tc.x, tc.y, ak), 0.2 + k * 0.1, H, creamTint, KIND.solid));
   });
-  g.add(new THREE.Mesh(mergeGeometries(geos), M.glass));
+  g.add(new THREE.Mesh(mergeGeometries([...glass, ...cream]), M.glass));
 
-  // SkyPark hull, along the tower line; local x from the middle tower
+  // SkyPark hull along the tower chord; local x from the middle tower, +z toward the east legs
   const mid = c[1];
   const d1 = c[0].distanceTo(mid), d3 = c[2].distanceTo(mid);
-  const x0 = -d1 - 45, x1 = d3 + 67, W = 38, zc = -4;
-  const hull = new THREE.Shape();
-  hull.moveTo(x0, zc - W / 2 * 0.85);
-  hull.lineTo(x1 - 40, zc - W / 2);
-  hull.quadraticCurveTo(x1 + 6, zc - W * 0.15, x1, zc + 2);
-  hull.quadraticCurveTo(x1 - 6, zc + W / 2, x1 - 50, zc + W / 2);
-  hull.lineTo(x0, zc + W / 2 * 0.85);
-  hull.lineTo(x0, zc - W / 2 * 0.85);
-  const hg = new THREE.ExtrudeGeometry(hull, { depth: 8, bevelEnabled: true, bevelSize: 1.2, bevelThickness: 1.2, bevelSegments: 2 });
-  hg.rotateX(Math.PI / 2);   // shape (x, z) -> extrude downward from y = 0
-  hg.translate(0, H + 9, 0);
-  g.add(new THREE.Mesh(toWorld(hg, mid.x, mid.y, a), M.metal));
-  // underside light lines, the infinity pool on the city (west) edge, trees on the deck
-  const lines = [], trees = [];
-  for (const z of [zc - W / 2 + 1.5, zc + W / 2 - 1.5]) {
-    lines.push(toWorld(new THREE.BoxGeometry(x1 - x0 - 30, 0.5, 0.8).translate((x0 + x1) / 2 - 15, H + 0.4, z), mid.x, mid.y, a));
+  const x0 = -d1 - 48, x1 = d3 + 66, L = x1 - x0, xm = (x0 + x1) / 2, W = 38, zc = -4, top = H + 7;
+  const stations = [];
+  for (let k = 0; k <= 64; k++) {
+    const x = x0 + L * k / 64, t = (x - xm) / (L / 2);
+    // plan: rounded stern at the south end, a long pointed prow at the north (cantilever) end
+    const plan = t > 0 ? Math.pow(Math.max(0, 1 - Math.pow(t, 2.2)), 0.55) : Math.pow(Math.max(0, 1 - Math.pow(-t, 6)), 0.35);
+    // hull depth: deepest over the towers, thinning to the tips
+    const depth = 3.5 + 8.5 * Math.pow(Math.max(0, 1 - t * t), 0.7);
+    stations.push({ x, y: top, zc, hw: Math.max(0.6, W / 2 * plan), depth });
   }
-  g.add(new THREE.Mesh(mergeGeometries(lines), M.led));
-  const pool = toWorld(new THREE.BoxGeometry(150, 0.6, 7).translate(x1 - 125, H + 9.4, zc - W / 2 + 4.5), mid.x, mid.y, a);
-  g.add(new THREE.Mesh(pool, M.cyan));
-  for (let k = 0; k < 26; k++) {
-    const x = x0 + 12 + k * (x1 - x0 - 60) / 26, z = zc + 4 + ((k * 7) % 5) * 2.4;
-    trees.push(toWorld(new THREE.SphereGeometry(2.2, 6, 4).scale(1, 0.8, 1).translate(x, H + 11.2, z), mid.x, mid.y, a));
+  const deck = [], side = [], under = [];
+  hull(stations, [[-1, 0], [1, 0]], deck);
+  hull(stations, [[1, 0], [1, 0.18], [0.92, 0.42]], side);
+  hull(stations, [[-0.92, 0.42], [-1, 0.18], [-1, 0]], side);
+  hull(stations, [[0.92, 0.42], [0.7, 0.75], [0.35, 0.95], [0, 1], [-0.35, 0.95], [-0.7, 0.75], [-0.92, 0.42]], under);
+  const place = geo => toWorld(geo, mid.x, mid.y, a);
+  g.add(new THREE.Mesh(place(mergeGeometries(deck)), new THREE.MeshStandardMaterial({ color: 0x24332a, roughness: 0.9, emissive: 0x0b140d })));
+  g.add(new THREE.Mesh(place(mergeGeometries(side)), M.metal));
+  // underside: lit soffit panels (a soft cool wash, like the nightly underside lighting)
+  g.add(new THREE.Mesh(place(mergeGeometries(under)), new THREE.MeshStandardMaterial({
+    color: 0x8f96a6, roughness: 0.6, metalness: 0.2, emissive: new THREE.Color(0.42, 0.44, 0.58), side: THREE.DoubleSide,
+  })));
+  // LED lines along both deck edges, the infinity pool on the city (west) edge, gardens on the deck
+  const lines = [], trees = [], trunks = [];
+  for (const sgn of [-1, 1]) {
+    const pts = stations.filter((_, k) => k % 2 === 0).map(S => new THREE.Vector3(S.x, top - 0.6, S.zc + sgn * (S.hw + 0.05)));
+    for (let k = 1; k < pts.length; k++) {
+      const d = pts[k].clone().sub(pts[k - 1]);
+      lines.push(new THREE.BoxGeometry(d.length(), 0.35, 0.35).rotateY(-Math.atan2(d.z, d.x)).translate((pts[k].x + pts[k - 1].x) / 2, top - 0.6, (pts[k].z + pts[k - 1].z) / 2));
+    }
   }
-  g.add(new THREE.Mesh(mergeGeometries(trees), M.green));
+  g.add(new THREE.Mesh(place(mergeGeometries(lines.map(x => x.toNonIndexed()))), M.led));
+  const pool = new THREE.BoxGeometry(146, 0.5, 6).translate(d3 - 40, top + 0.3, zc - W / 2 + 4);
+  g.add(new THREE.Mesh(place(pool), M.cyan));
+  let seed = 3;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let k = 0; k < 70; k++) {
+    const x = x0 + 18 + rnd() * (L - 70);
+    const S = stations[Math.round((x - x0) / L * 64)];
+    const z = S.zc - S.hw * 0.25 + rnd() * S.hw * 1.1;
+    const r = 1.6 + rnd() * 1.4;
+    trees.push(new THREE.SphereGeometry(r, 7, 5).scale(1, 0.75, 1).translate(x, top + 2.4 + r * 0.5, z));
+    trunks.push(new THREE.CylinderGeometry(0.18, 0.25, 2.6, 5).translate(x, top + 1.3, z));
+  }
+  g.add(new THREE.Mesh(place(mergeGeometries(trees)), M.green));
+  g.add(new THREE.Mesh(place(mergeGeometries(trunks)), M.metal));
+  // observation-deck rail at the prow
+  const rail = [];
+  for (let k = 54; k < 64; k++) {
+    for (const sgn of [-1, 1]) {
+      const A = stations[k], B = stations[k + 1];
+      rail.push(new THREE.BoxGeometry(B.x - A.x + 0.2, 1.1, 0.08).translate((A.x + B.x) / 2, top + 0.55, zc + sgn * (A.hw + B.hw) / 2 * 0.98));
+    }
+  }
+  g.add(new THREE.Mesh(place(mergeGeometries(rail.map(x => x.toNonIndexed()))), M.metal));
+  const x0b = x0, x1b = x1;
 
   // sweeping searchlights from the SkyPark, like the nightly light show
   const beamMat = () => new THREE.ShaderMaterial({
@@ -215,7 +282,7 @@ function marinaBaySands(city, M, animated) {
   const beams = [];
   for (let k = 0; k < 4; k++) {
     const hold = new THREE.Group();
-    const p = new THREE.Vector3(x0 + 40 + k * (x1 - x0 - 80) / 3, H + 11, zc);
+    const p = new THREE.Vector3(x0b + 40 + k * (x1b - x0b - 80) / 3, top + 1, zc);
     p.applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
     hold.position.set(p.x + mid.x, p.y, p.z - mid.y);
     const m = new THREE.Mesh(cone, beamMat());

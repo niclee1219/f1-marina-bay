@@ -1,0 +1,3 @@
+- `Benjamin_Sheares_Bridge.JPG`: [File:Benjamin Sheares Bridge.JPG](https://commons.wikimedia.org/wiki/File:Benjamin_Sheares_Bridge.JPG), Terence Ong, CC BY 2.5
+- `Benjamin_Sheares_Bridge_Singapore.jpg`: [File:Benjamin Sheares Bridge, Singapore.jpg](https://commons.wikimedia.org/wiki/File:Benjamin_Sheares_Bridge,_Singapore.jpg), yeowatzup, CC BY 2.0
+- `Bridge_over_the_bay_Benjamin_Sheares_Bridge.jpg`: [File:Bridge over the bay, Benjamin Sheares Bridge.jpg](https://commons.wikimedia.org/wiki/File:Bridge_over_the_bay,_Benjamin_Sheares_Bridge.jpg), Matthew10_16, CC BY 2.0

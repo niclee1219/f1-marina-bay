@@ -1,0 +1,3 @@
+- `OldSupremeCourtSingaporePano.jpg`: [File:OldSupremeCourtSingaporePano.jpg](https://commons.wikimedia.org/wiki/File:OldSupremeCourtSingaporePano.jpg), No machine-readable author provided. Xibot assumed (based on copyright claims)., CC BY-SA 3.0
+- `Singapore_old_Supreme_Court.jpg`: [File:Singapore old Supreme Court.jpg](https://commons.wikimedia.org/wiki/File:Singapore_old_Supreme_Court.jpg), William Cho., CC BY-SA 2.0
+- `National_gallery_Singapore_Singapore.jpg`: [File:National gallery Singapore, Singapore.jpg](https://commons.wikimedia.org/wiki/File:National_gallery_Singapore,_Singapore.jpg), cattan2011, CC BY 2.0

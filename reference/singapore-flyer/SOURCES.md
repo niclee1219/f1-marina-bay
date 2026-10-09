@@ -1,0 +1,3 @@
+- `Singapore_Flyer_from_gardens_by_the_bay.JPG`: [File:Singapore Flyer from gardens by the bay.JPG](https://commons.wikimedia.org/wiki/File:Singapore_Flyer_from_gardens_by_the_bay.JPG), C1815., CC0
+- `Singapore_Singapore-Flyer-Ferris-wheel-01.jpg`: [File:Singapore Singapore-Flyer-Ferris-wheel-01.jpg](https://commons.wikimedia.org/wiki/File:Singapore_Singapore-Flyer-Ferris-wheel-01.jpg), CEphoto, Uwe Aranas, CC BY-SA 3.0
+- `Singapore_Singapore_Flyer_1.jpg`: [File:Singapore Singapore Flyer 1.jpg](https://commons.wikimedia.org/wiki/File:Singapore_Singapore_Flyer_1.jpg), Zairon, CC BY-SA 4.0

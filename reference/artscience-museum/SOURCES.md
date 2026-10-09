@@ -1,0 +1,3 @@
+- `Singapore_ArtScience-Museum-01.jpg`: [File:Singapore ArtScience-Museum-01.jpg](https://commons.wikimedia.org/wiki/File:Singapore_ArtScience-Museum-01.jpg), CEphoto, Uwe Aranas, CC BY-SA 4.0
+- `2016_Singapur_Downtown_Core_ArtScience_Museum_03_.jpg`: [File:2016 Singapur, Downtown Core, ArtScience Museum (03).jpg](https://commons.wikimedia.org/wiki/File:2016_Singapur,_Downtown_Core,_ArtScience_Museum_(03).jpg), Marcin Konsek, CC BY-SA 4.0
+- `ArtScience_Museum_Marina_Bay_Sands_Singapore.jpg`: [File:ArtScience Museum, Marina Bay Sands, Singapore.jpg](https://commons.wikimedia.org/wiki/File:ArtScience_Museum,_Marina_Bay_Sands,_Singapore.jpg), Basile Morin, CC BY-SA 4.0

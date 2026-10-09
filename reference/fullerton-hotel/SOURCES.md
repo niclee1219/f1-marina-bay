@@ -1,0 +1,3 @@
+- `Singapore_The-Fullerton-Hotel-Singapore-01.jpg`: [File:Singapore The-Fullerton-Hotel-Singapore-01.jpg](https://commons.wikimedia.org/wiki/File:Singapore_The-Fullerton-Hotel-Singapore-01.jpg), CEphoto, Uwe Aranas, CC BY-SA 3.0
+- `2016_Singapur_Downtown_Core_Hotel_Fullerton_03_.jpg`: [File:2016 Singapur, Downtown Core, Hotel Fullerton (03).jpg](https://commons.wikimedia.org/wiki/File:2016_Singapur,_Downtown_Core,_Hotel_Fullerton_(03).jpg), Marcin Konsek, CC BY-SA 4.0
+- `Aerial_photographs_of_The_Fullerton_Hotel_of_Singapore_at_night.jpg`: [File:Aerial photographs of The Fullerton Hotel of Singapore at night.jpg](https://commons.wikimedia.org/wiki/File:Aerial_photographs_of_The_Fullerton_Hotel_of_Singapore_at_night.jpg), Basile Morin, CC BY-SA 4.0

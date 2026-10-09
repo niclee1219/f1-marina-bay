@@ -1,0 +1,3 @@
+- `Schoolboy_rugby_at_the_Padang_Singapore_-_20131026-02.jpg`: [File:Schoolboy rugby at the Padang, Singapore - 20131026-02.jpg](https://commons.wikimedia.org/wiki/File:Schoolboy_rugby_at_the_Padang,_Singapore_-_20131026-02.jpg), Simon_sees., CC BY 2.0
+- `Singapore_Recreation_Club_6_32126326696_.jpg`: [File:Singapore Recreation Club 6 (32126326696).jpg](https://commons.wikimedia.org/wiki/File:Singapore_Recreation_Club_6_(32126326696).jpg), Tony Hisgett from Birmingham, UK, CC BY 2.0
+- `Recreation_club_and_SB_Residences_from_Padang.jpg`: [File:Recreation club and SB Residences from Padang.jpg](https://commons.wikimedia.org/wiki/File:Recreation_club_and_SB_Residences_from_Padang.jpg), Orderinchaos, CC BY-SA 4.0
