@@ -181,6 +181,7 @@ export class Track {
     const drsMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.08, 0.8, 0.3), transparent: true, opacity: 0.55 });
     const drs = tr.drs.map(([a, b]) => this.ribbon(-0.18, 0.18, 0.03, a, b));
     this.drsMesh = new THREE.Mesh(mergeGeometries(drs), drsMat);
+    this.drsMesh.visible = race.has_drs !== false; // no DRS on 2026 cars
     g.add(this.drsMesh);
 
     // ---------- barriers: concrete wall with livery band + debris fence
@@ -305,7 +306,8 @@ export class Track {
     gantry.rotation.y = Math.atan2(-t.x, -t.z);
     g.add(gantry);
 
-    // grid boxes painted where the cars actually lined up
+    // grid boxes painted where the cars actually lined up (races only)
+    if (!race.isRace) return;
     const tmp = [0, 0];
     const tGrid = race.race_start - 3;
     const boxes = [];

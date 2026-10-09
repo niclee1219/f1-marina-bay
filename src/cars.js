@@ -184,8 +184,9 @@ export class Cars {
     this.tmp2 = [0, 0];
   }
 
-  elevation(x, z) {
+  elevation(x, z, c) {
     const { i, d } = this.track.nearest(x, z);
+    c.offTrack = d > 16; // pit lane, garage or run-off
     return d < 40 ? this.track.P[i].y : 0.2;
   }
 
@@ -205,7 +206,7 @@ export class Cars {
         const tt = this.track.T[i];
         c.heading = Math.atan2(tt.x, tt.z);
       }
-      const y = this.elevation(x, z);
+      const y = this.elevation(x, z, c);
       c.root.position.set(x, y, z);
       c.car.rotation.y = c.heading;
       c.world.set(x, y, z);
@@ -248,7 +249,9 @@ export class Cars {
       c.trail.geometry.attributes.position.needsUpdate = true;
       c.trail.visible = opts.trails && tel.speed > 30 && !(opts.realScale && k === focusK);
 
-      c.label.visible = opts.labels && !(opts.onboard && k === focusK);
+      // in practice, cars parked in the garage would pile their labels on top of each other
+      const parked = !race.isRace && c.offTrack && tel.speed < 5 && k !== focusK;
+      c.label.visible = opts.labels && !(opts.onboard && k === focusK) && !parked;
       c.el.classList.toggle('focus', k === focusK);
     }
   }

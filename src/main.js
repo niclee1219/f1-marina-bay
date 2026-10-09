@@ -16,7 +16,8 @@ const status = document.getElementById('ld-status');
 const setLights = n => pods.forEach((p, i) => p.classList.toggle('on', i < n));
 
 async function boot() {
-  const { race, city } = await loadAll(p => setLights(Math.min(5, Math.floor(p * 5.01))));
+  const { race, city, sessions, id } = await loadAll(p => setLights(Math.min(5, Math.floor(p * 5.01))));
+  try { sessionStorage.setItem('f1mb-session', id); } catch { /* storage unavailable */ }
   status.textContent = 'Building Marina Bay…';
   await new Promise(r => setTimeout(r, 30));
 
@@ -60,13 +61,16 @@ async function boot() {
   composer.addPass(new OutputPass());
 
   // ---------------------------------------------------------------- state
+  // races open on the grid just before lights out; other sessions once cars are out on track
+  const fastest = race.drivers.findIndex(d => d.finish === 1);
   const state = {
-    t: race.race_start - 10, speed: 1, playing: true, focusK: race.drivers.findIndex(d => d.finish === 1),
+    t: race.isRace ? race.race_start - 10 : race.race_start + 90, speed: 1, playing: true,
+    focusK: fastest >= 0 ? fastest : 0,
     opts: { labels: true, trails: true, realScale: false, onboard: false, jumped: true },
     prevToastT: null,
   };
 
-  const ui = new UI(race, track, {
+  const ui = new UI(race, track, sessions, id, {
     select: k => { state.focusK = k; if (director.mode === 'orbit') director.follow = true; },
     seek: t => { state.t = t; state.opts.jumped = true; state.prevToastT = null; },
     skip: s => { state.t = Math.max(0, Math.min(race.duration, state.t + s)); state.opts.jumped = true; state.prevToastT = null; },
@@ -135,7 +139,7 @@ async function boot() {
 
     // start lights: one per second, out at lights-out
     const ls = race.race_start - t;
-    track.setStartLights(ls > 0 && ls < 6 ? Math.min(5, Math.floor(6 - ls)) : 0);
+    track.setStartLights(race.isRace && ls > 0 && ls < 6 ? Math.min(5, Math.floor(6 - ls)) : 0);
 
     water.material.uniforms.time.value += dt;
     beacons.material.color.setRGB(2 + 2.5 * (Math.sin(clock.elapsedTime * 3) > 0.6 ? 1 : 0), 0.12, 0.08);
@@ -154,7 +158,7 @@ async function boot() {
     if (slowAcc > 0.25) {
       slowAcc = 0;
       timing = race.timing(t);
-      ui.updateTower(t, order, state.focusK, timing);
+      ui.updateTower(t, order, state.focusK, timing, cars.cars);
     }
     ui.updateCard(t, state.focusK, timing);
 
@@ -163,7 +167,7 @@ async function boot() {
     requestAnimationFrame(frame);
   }
 
-  status.textContent = 'Lights out';
+  status.textContent = race.isRace ? 'Lights out' : 'Pit exit open';
   setLights(5);
   setTimeout(() => {
     setLights(0);

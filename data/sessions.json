@@ -1,0 +1,18 @@
+[
+ {
+  "id": "2026-fp1",
+  "label": "2026 FP1",
+  "name": "Practice 1",
+  "year": 2026,
+  "date": "2026-10-09T08:30:00+00:00",
+  "is_race": false
+ },
+ {
+  "id": "2025-race",
+  "label": "2025 Race",
+  "name": "Race",
+  "year": 2025,
+  "date": "2025-10-05T12:00:00+00:00",
+  "is_race": true
+ }
+]

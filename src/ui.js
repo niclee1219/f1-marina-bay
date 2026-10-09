@@ -23,10 +23,11 @@ function tyreBadge(t) {
 }
 
 export class UI {
-  constructor(race, track, handlers) {
+  constructor(race, track, sessions, sessionId, handlers) {
     this.race = race;
     this.track = track;
     this.h = handlers;
+    this.buildSessions(sessions, sessionId);
     this.gapMode = 'interval';
     this.rows = new Map();
     this.lastToastT = null;
@@ -34,9 +35,41 @@ export class UI {
     this.buildTimeline();
     this.buildControls();
     this.buildMinimap();
+    const s = race.session || { name: 'Race', date: '2025-10-05' };
+    const date = new Date(`${s.date}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
     $('#ev-title').textContent = 'Singapore Grand Prix';
-    $('#ev-sub').textContent = `${race.circuit} · Race · 5 Oct 2025`;
+    $('#ev-sub').textContent = `${race.circuit} · ${s.name} · ${date}`;
+    if (!race.isRace) {
+      $('.th-title').textContent = s.name.toUpperCase();
+      $('#gap-toggle').hidden = true;
+      $('.lapbox .lbl').textContent = 'TIME LEFT';
+      $('.lapbox .of').hidden = true;
+      $('#lap-total').hidden = true;
+    }
+    if (race.has_drs === false) {
+      $('#t-drs').hidden = true;
+      $('#c-drs').hidden = true;
+    }
+    document.documentElement.style.setProperty('--rows', race.drivers.length);
     $('#wx').innerHTML = `<span>AIR ${race.weather.air.toFixed(0)}°C</span><span>TRACK ${race.weather.track.toFixed(0)}°C</span><span>HUM ${race.weather.humidity.toFixed(0)}%</span>`;
+  }
+
+  // ---------------------------------------------------------------- session picker
+  buildSessions(sessions, current) {
+    const box = $('#sessions');
+    for (const s of sessions) {
+      const b = document.createElement('button');
+      b.textContent = s.label;
+      b.title = `${s.name} · ${s.date.slice(0, 10)}`;
+      b.classList.toggle('on', s.id === current);
+      b.addEventListener('click', () => {
+        if (s.id === current) return;
+        try { sessionStorage.setItem('f1mb-session', s.id); } catch { /* storage unavailable */ }
+        location.hash = s.id;
+        location.reload();
+      });
+      box.appendChild(b);
+    }
   }
 
   // ---------------------------------------------------------------- tower
@@ -58,8 +91,9 @@ export class UI {
     });
   }
 
-  updateTower(t, order, focusK, timing) {
+  updateTower(t, order, focusK, timing, cars) {
     const race = this.race;
+    if (!race.isRace) return this.updatePracticeTower(t, order, focusK, timing, cars);
     const leaderDone = t >= race.raceEnd;
     order.forEach((d, i) => {
       const r = this.rows.get(d.k);
@@ -82,6 +116,32 @@ export class UI {
       let flags = '';
       if (timing.best.lapK === d.k) flags += '<span class="fl purple" title="Fastest lap">⏱</span>';
       if (finished) flags += '<span class="fl chq" title="Finished"></span>';
+      if (r.flagsHtml !== flags) { r.flags.innerHTML = flags; r.flagsHtml = flags; }
+      const ty = race.tyre(d.k, t);
+      const key = ty ? ty.comp + ty.age : '';
+      if (key !== r.lastTy) { r.ty.innerHTML = tyreBadge(ty); r.lastTy = key; }
+    });
+  }
+
+  // practice / qualifying: ordered by best lap, gap to the fastest time
+  updatePracticeTower(t, order, focusK, timing, cars) {
+    const race = this.race;
+    const best = timing.best.lap;
+    order.forEach((d, i) => {
+      const r = this.rows.get(d.k);
+      r.row.style.transform = `translateY(${i * 100}%)`;
+      r.p.textContent = i + 1;
+      r.row.classList.toggle('focus', d.k === focusK);
+      const pb = timing.pb[d.k].lap;
+      let gapTxt;
+      if (pb === Infinity) gapTxt = 'NO TIME';
+      else if (pb === best) gapTxt = fmtLap(pb);
+      else gapTxt = `+${(pb - best).toFixed(3)}`;
+      const inPit = cars[d.k].offTrack && t > race.race_start;
+      r.gap.textContent = inPit ? 'PIT' : gapTxt;
+      r.gap.classList.toggle('pit', inPit);
+      r.gap.classList.toggle('none', pb === Infinity && !inPit);
+      const flags = timing.best.lapK === d.k ? '<span class="fl purple" title="Fastest lap">⏱</span>' : '';
       if (r.flagsHtml !== flags) { r.flags.innerHTML = flags; r.flagsHtml = flags; }
       const ty = race.tyre(d.k, t);
       const key = ty ? ty.comp + ty.age : '';
@@ -115,7 +175,8 @@ export class UI {
     $('#c-lap').textContent = lap ? `LAP ${lap}` : 'GRID';
     const ty = race.tyre(k, t);
     $('#c-tyre').innerHTML = ty ? `${tyreBadge(ty)}<span>${ty.comp[0] + ty.comp.slice(1).toLowerCase()} · ${ty.age} laps</span>` : '';
-    $('#c-stops').textContent = `${race.pitCount(k, t)} stop${race.pitCount(k, t) === 1 ? '' : 's'}`;
+    if (race.isRace) $('#c-stops').textContent = `${race.pitCount(k, t)} stop${race.pitCount(k, t) === 1 ? '' : 's'}`;
+    else $('#c-stops').parentElement.hidden = true;
     const last = timing.last[k];
     $('#c-last').textContent = last ? fmtLap(last.dur) : '—';
     $('#c-last').className = `v ${last ? last.lc : ''}`;
@@ -178,9 +239,17 @@ export class UI {
     const ticks = $('#scrub-ticks');
     const pct = t => `${(t / race.duration) * 100}%`;
     let html = '';
-    for (const [lap, start] of race.leaderLaps) {
-      const major = lap === 1 || lap % 10 === 0;
-      html += `<span class="tick${major ? ' major' : ''}" style="left:${pct(start)}">${major ? `<b>L${lap}</b>` : ''}</span>`;
+    if (race.isRace) {
+      for (const [lap, start] of race.leaderLaps) {
+        const major = lap === 1 || lap % 10 === 0;
+        html += `<span class="tick${major ? ' major' : ''}" style="left:${pct(start)}">${major ? `<b>L${lap}</b>` : ''}</span>`;
+      }
+    } else {
+      // session clock: a tick every 5 minutes, labelled every 10
+      for (let m = 0; race.race_start + m * 60 <= race.duration; m += 5) {
+        const major = m % 10 === 0;
+        html += `<span class="tick${major ? ' major' : ''}" style="left:${pct(race.race_start + m * 60)}">${major ? `<b>${m}'</b>` : ''}</span>`;
+      }
     }
     for (const p of race.pits) {
       const d = race.drivers[race.byNum.get(p[1])];
@@ -211,7 +280,8 @@ export class UI {
       const hov = $('#scrub-hover');
       const tt = f * race.duration;
       const lap = race.leaderLap(tt);
-      hov.textContent = tt < race.race_start ? 'Formation' : `Lap ${lap} · ${fmtClock(tt - race.race_start)}`;
+      if (race.isRace) hov.textContent = tt < race.race_start ? 'Formation' : `Lap ${lap} · ${fmtClock(tt - race.race_start)}`;
+      else hov.textContent = tt < race.race_start ? 'Before the session' : fmtClock(tt - race.race_start);
       hov.style.left = `${f * 100}%`;
       if (drag) seek(e);
     });
@@ -225,12 +295,16 @@ export class UI {
     $('#clock').textContent = el < 0 ? `START IN ${fmtClock(-el)}` : fmtClock(Math.min(el, race.raceEnd - race.race_start + (t > race.raceEnd ? t - race.raceEnd : 0)));
     const local = new Date(Date.parse(race.t0) + t * 1000 + 8 * 3600 * 1000);
     $('#local').textContent = `${String(local.getUTCHours()).padStart(2, '0')}:${String(local.getUTCMinutes()).padStart(2, '0')} SGT`;
-    const lap = race.leaderLap(t);
-    $('#lap-now').textContent = t < race.race_start ? '—' : Math.min(lap, race.total_laps);
-    $('#lap-total').textContent = race.total_laps;
+    if (race.isRace) {
+      const lap = race.leaderLap(t);
+      $('#lap-now').textContent = t < race.race_start ? '—' : Math.min(lap, race.total_laps);
+      $('#lap-total').textContent = race.total_laps;
+    } else {
+      $('#lap-now').textContent = fmtClock(Math.max(0, race.raceEnd - Math.max(t, race.race_start)));
+    }
     const fs = race.flagState(t);
     const chip = $('#flag');
-    const label = t < race.race_start ? 'FORMATION' : fs.label;
+    const label = t < race.race_start ? (race.isRace ? 'FORMATION' : 'PIT EXIT CLOSED') : fs.label;
     chip.dataset.flag = label;
     chip.textContent = label === 'YELLOW' ? `YELLOW · S${fs.sectors.join(', S')}` : label;
   }
@@ -283,7 +357,12 @@ export class UI {
       const A = race.drivers[race.byNum.get(a)], B = race.drivers[race.byNum.get(b)];
       this.toast('ovt', 'OVERTAKE', `<b style="color:${A.color}">${A.code}</b> passes <b style="color:${B.color}">${B.code}</b> for P${pos}`, true);
     }
-    for (const p of race.pits) {
+    for (const e of race.lapEvents) {
+      if (e.t <= prevT || e.t > t || !e.overallBest || e.t < race.race_start) continue;
+      const d = race.drivers[e.k];
+      this.toast('fl', 'FASTEST LAP', `<b style="color:${d.color}">${d.code}</b> ${fmtLap(e.dur)}`, true);
+    }
+    for (const p of race.isRace ? race.pits : []) {
       if (p[0] <= prevT || p[0] > t) continue;
       const d = race.drivers[race.byNum.get(p[1])];
       const stop = p[3] ? ` · ${p[3].toFixed(1)}s stop` : '';

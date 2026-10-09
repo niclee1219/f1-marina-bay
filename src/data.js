@@ -33,16 +33,30 @@ async function fetchWithProgress(url, onProgress, type) {
   return type === 'json' ? JSON.parse(new TextDecoder().decode(buf)) : buf.buffer;
 }
 
+// Which session to show: #<id> in the link, then the last one picked here, then the newest.
+export function pickSession(sessions) {
+  const ids = sessions.map(s => s.id);
+  const fromHash = location.hash.slice(1);
+  if (ids.includes(fromHash)) return fromHash;
+  try {
+    const saved = sessionStorage.getItem('f1mb-session');
+    if (ids.includes(saved)) return saved;
+  } catch { /* storage unavailable */ }
+  return ids[0];
+}
+
 export async function loadAll(onProgress) {
+  const sessions = await (await fetch('data/sessions.json')).json();
+  const id = pickSession(sessions);
   const parts = [0, 0, 0];
   const weights = [0.15, 0.15, 0.7];
   const report = () => onProgress(parts.reduce((a, p, i) => a + p * weights[i], 0));
   const [race, city, bin] = await Promise.all([
-    fetchWithProgress('data/race.json', p => { parts[0] = p; report(); }, 'json'),
+    fetchWithProgress(`data/${id}/race.json`, p => { parts[0] = p; report(); }, 'json'),
     fetchWithProgress('data/city.json', p => { parts[1] = p; report(); }, 'json'),
-    fetchWithProgress('data/race.bin', p => { parts[2] = p; report(); }, 'bin'),
+    fetchWithProgress(`data/${id}/race.bin`, p => { parts[2] = p; report(); }, 'bin'),
   ]);
-  return { race: new Race(race, bin), city };
+  return { race: new Race(race, bin), city, sessions, id };
 }
 
 // last index i with arr[i][0] <= t (arr sorted by [0]); -1 if none
@@ -84,12 +98,18 @@ export class Race {
       }
     }
     this.lapEvents.sort((a, b) => a.t - b.t);
+    // mark the laps that set a new overall fastest time (for the purple "fastest lap" toast)
+    let bestSoFar = Infinity;
+    for (const e of this.lapEvents) {
+      if (e.lap > 1 && e.dur < bestSoFar) { bestSoFar = e.dur; e.overallBest = true; }
+    }
     this.lapEventT = this.lapEvents.map(e => [e.t]);
-    this.leaderLaps = this.drivers.find(d => d.finish === 1).laps;
-    this.raceEnd = (() => {
+    this.isRace = this.session ? this.session.is_race : true;
+    this.leaderLaps = (this.drivers.find(d => d.finish === 1) || this.drivers[0]).laps;
+    this.raceEnd = this.isRace ? (() => {
       const L = this.leaderLaps[this.leaderLaps.length - 1];
       return L[1] + (L[2] || 95);
-    })();
+    })() : this.session.end;
     // per-driver finish time (crossing the line after the leader has finished)
     for (const d of this.drivers) {
       const last = d.laps[d.laps.length - 1];
@@ -195,7 +215,7 @@ export class Race {
     for (const [mt, , cat, flag, msg] of this.race_control) {
       if (mt > t) break;
       if (cat === 'SafetyCar') {
-        if (/DEPLOYED/.test(msg)) status = /VIRTUAL/.test(msg) ? 'VSC' : 'SC';
+        if (/DEPLOYED/.test(msg)) status = /VIRTUAL|VSC/.test(msg) ? 'VSC' : 'SC';
         if (/ENDING|IN THIS LAP|WITHDRAWN/.test(msg)) status = 'GREEN';
       }
       if (cat !== 'Flag') continue;

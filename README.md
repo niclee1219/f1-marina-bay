@@ -1,7 +1,8 @@
 # Marina Bay Night Race — 3D replay
 
 An interactive, stylised 3D map of the **Marina Bay Street Circuit** with a full replay of the
-**2025 Singapore Grand Prix** (5 Oct 2025, won by George Russell). All 20 cars move along the
+**2025 Singapore Grand Prix** (5 Oct 2025, won by George Russell), plus sessions from the
+2026 weekend as their data is published (FP1 so far). All 20 cars move along the
 paths they actually drove, using the recorded car-location telemetry. The city around the track is
 built from real OpenStreetMap footprints.
 
@@ -54,17 +55,31 @@ python3 -m http.server 8000
 # open http://localhost:8000
 ```
 
-## Rebuild the data
+## Sessions and rebuilding the data
 
-`data/` is committed, so you only need this to regenerate it or to adapt it to another race.
+Each session is built into its own folder under `data/` and listed in `data/sessions.json`.
+The picker in the header switches between them, and a link can open one directly with
+`#<id>` (for example `#2026-fp1`).
+
+OpenF1's free API publishes a session's data a few minutes after the session ends. A live
+feed while cars are on track would need OpenF1's paid real-time access and a small relay
+server, so these are replays rather than live views. To add a session (find the key with
+`https://api.openf1.org/v1/sessions?country_name=Singapore&year=2026`):
 
 ```bash
 pip install numpy scipy
-python3 scripts/fetch_data.py raw      # OpenF1 + OSM tiles + corner data -> raw/ (git-ignored)
-python3 scripts/build_data.py raw data # -> data/race.json, data/race.bin, data/city.json
+python3 scripts/fetch_data.py --session 11378            # -> raw/11378 (+ raw/common, git-ignored)
+python3 scripts/build_data.py --session 11378 --id 2026-fp1 --label "2026 FP1" \
+    --track-from data/2025-race/race.json                # reuse the race's track geometry
 ```
 
-`data/race.bin` is `int16[driver][frame][4]` at 4 Hz, holding `x_dm, y_dm, speed_kph, packed`.
+The track geometry (centreline, kerbs, corners, DRS zones) is built from the 2025 race laps:
+`--session 9896 --id 2025-race --label "2025 Race" --city`, which also rebuilds `data/city.json`.
+Other sessions on the same layout reuse it with `--track-from`. Races (and sprints) get a grid, start
+lights and a lap counter; practice and qualifying get a best-lap timing tower and a session clock.
+2026 cars have no DRS, so DRS zones and the DRS badge are hidden for 2026 sessions.
+
+`race.bin` is `int16[driver][frame][4]` at 4 Hz, holding `x_dm, y_dm, speed_kph, packed`.
 `packed` is throttle (7 bits), gear << 7, DRS << 11 and brake << 12. Coordinates are local metres
 ×10 (x east, y north) around Marina Bay.
 

@@ -1,17 +1,24 @@
 """Turn raw OpenF1 + OSM downloads into compact files the web app loads.
 
-Usage: python3 scripts/build_data.py [raw_dir] [out_dir]
+Usage:
+  # a race: builds the track geometry from the laps, plus the shared city
+  python3 scripts/build_data.py --session 9896 --id 2025-race --label "2025 Race" --city
+  # any other session on the same layout: reuse that race's track geometry
+  python3 scripts/build_data.py --session 11378 --id 2026-fp1 --label "2026 FP1" --track-from data/2025-race/race.json
 
-Outputs (out_dir, default ./data):
-  race.json  - drivers, timeline events, track geometry, corners, DRS zones
-  city.json  - buildings, water, parks, roads (local metres, x=east, y=north)
-  race.bin   - per-driver telemetry frames at 4 Hz (see FRAME LAYOUT below)
+Inputs come from scripts/fetch_data.py (raw/<session_key>/ and raw/common/).
+Outputs:
+  data/<id>/race.json - drivers, timeline events, track geometry, corners, DRS zones
+  data/<id>/race.bin  - per-driver telemetry frames at 4 Hz (see FRAME LAYOUT below)
+  data/city.json      - buildings, water, parks, roads (local metres, x=east, y=north)
+  data/sessions.json  - index of built sessions for the session picker
 """
+import argparse
 import json
 import math
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -20,12 +27,24 @@ sys.path.insert(0, os.path.dirname(__file__))
 from osm_util import OSM  # noqa: E402
 
 HERE = os.path.dirname(__file__)
-RAW = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "..", "raw")
-OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "..", "data")
+ap = argparse.ArgumentParser()
+ap.add_argument("--session", required=True, help="OpenF1 session_key")
+ap.add_argument("--id", required=True, help="output folder name under data/")
+ap.add_argument("--label", required=True, help="short label for the session picker")
+ap.add_argument("--raw", default=os.path.join(HERE, "..", "raw"))
+ap.add_argument("--data", default=os.path.join(HERE, "..", "data"))
+ap.add_argument("--track-from", help="race.json whose track geometry to reuse")
+ap.add_argument("--city", action="store_true", help="also (re)build data/city.json")
+ARGS = ap.parse_args()
+RAW = os.path.join(ARGS.raw, str(ARGS.session))
+COMMON = os.path.join(ARGS.raw, "common")
+OUT = os.path.join(ARGS.data, ARGS.id)
 CIRCUIT_REL = "421263"
-T0 = datetime(2025, 10, 5, 11, 59, 30, tzinfo=timezone.utc)  # grid, before formation lap
-T1 = datetime(2025, 10, 5, 13, 47, 30, tzinfo=timezone.utc)  # after the cool-down lap
 HZ = 4
+SESSION = json.load(open(os.path.join(RAW, "session.json")))
+IS_RACE = SESSION["session_type"] == "Race"  # covers Sprint too (OpenF1 session_type "Race")
+# start just before the session opens (grid / formation lap for races)
+T0 = datetime.fromisoformat(SESSION["date_start"]) - timedelta(seconds=30)
 
 
 def ts(s):
@@ -33,7 +52,10 @@ def ts(s):
 
 
 def load(name):
-    return json.load(open(os.path.join(RAW, name)))
+    path = os.path.join(RAW, name)
+    if not os.path.exists(path):
+        path = os.path.join(COMMON, name)
+    return json.load(open(path))
 
 
 def densify(coords, step=2.0):
@@ -77,8 +99,10 @@ def fit_similarity(src, dst_tree, dst):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    osm = OSM(os.path.join(RAW, "osm"))
-    drivers = load("drivers.json")
+    os.makedirs(OUT, exist_ok=True)
+    osm = OSM(os.path.join(COMMON, "osm"))
+    # drivers with no location data (did not run) are left out of the replay
+    drivers = [d for d in load("drivers.json") if len(load(f"loc/{d['driver_number']}.json")) > 50]
     nums = [d["driver_number"] for d in drivers]
 
     # OSM circuit polyline (minus pit lane) as the alignment target.
@@ -103,14 +127,52 @@ def main():
         a = ts(l["date_start"])
         return a, a + l["lap_duration"]
 
-    a, b = lap_window(63, 10)
-    ref_raw = np.array([[p["x"], p["y"]] for p in loc[63] if a <= ts(p["date"]) <= b], float)
+    # end of the replay: a few minutes after the last car crosses the line / the session closes
+    lap_ends = [ts(l["date_start"]) + l["lap_duration"] for l in laps if l["date_start"] and l["lap_duration"]]
+    if IS_RACE:
+        dur = max(lap_ends) + 210
+    else:
+        dur = max(ts(SESSION["date_end"]) + 150, max(lap_ends) + 60)
+    T1 = T0 + timedelta(seconds=dur)
+
+    # alignment reference: a quick, clean lap (median-fast lap avoids odd outliers)
+    timed = sorted((l for l in laps if l["lap_duration"] and l["date_start"] and not l["is_pit_out_lap"]
+                    and l["driver_number"] in loc), key=lambda l: l["lap_duration"])
+    ref_lap = timed[min(len(timed) - 1, len(timed) // 10)]
+    ref_num = ref_lap["driver_number"]
+    a = ts(ref_lap["date_start"]); b = a + ref_lap["lap_duration"]
+    ref_raw = np.array([[p["x"], p["y"]] for p in loc[ref_num] if a <= ts(p["date"]) <= b], float)
     err, A, t = fit_similarity(ref_raw, tree, circ)
     print(f"alignment rms {err:.2f} m")
 
     def xf(arr):
         return np.asarray(arr, float) @ A.T + t
 
+    if ARGS.track_from:
+        track = json.load(open(ARGS.track_from))["track"]
+        cl = np.array(track["center"])
+        print("reusing track from", ARGS.track_from)
+    else:
+        track, cl = build_track(locals_for_track(loc, laps, lap_window, xf, ref_raw, ref_num, nums, pit_osm))
+    car = {n: load(f"car/{n}.json") for n in nums}
+    pits = load("pit.json")
+    # sanity: how well do this session's cars sit on the track centreline?
+    d = cKDTree(cl).query(xf(ref_raw))[0]
+    print(f"reference lap vs centreline: median {np.median(d):.1f} m, p95 {np.percentile(d, 95):.1f} m")
+    frames_and_meta(loc, car, laps, pits, nums, drivers, xf, track, T1)
+    if ARGS.city:
+        build_city(osm, cl)
+    update_index()
+
+
+def locals_for_track(loc, laps, lap_window, xf, ref_raw, ref_num, nums, pit_osm):
+    return dict(loc=loc, laps=laps, lap_window=lap_window, xf=xf, ref_raw=ref_raw, ref_num=ref_num,
+                nums=nums, pit_osm=pit_osm)
+
+
+def build_track(ctx):
+    loc, lap_window, xf, ref_raw, ref_num, nums, pit_osm = (
+        ctx["loc"], ctx["lap_window"], ctx["xf"], ctx["ref_raw"], ctx["ref_num"], ctx["nums"], ctx["pit_osm"])
     # ------------------------------------------------------------ centreline
     # Average many clean racing laps into arc-length bins along a reference lap.
     ref = xf(ref_raw)
@@ -166,16 +228,16 @@ def main():
     z = smooth(z, 6); z -= z.min()
     speed = smooth(speed, 2)
 
-    # Start/finish: where the leader is at the start of lap 2.
-    a, _ = lap_window(63, 2)
-    lt = np.array([ts(p["date"]) for p in loc[63]])
+    # Start/finish: where the reference car is when its timed lap starts.
+    a, _ = lap_window(ref_num, 2)
+    lt = np.array([ts(p["date"]) for p in loc[ref_num]])
     j = np.searchsorted(lt, a)
-    sf_xy = xf([[loc[63][j]["x"], loc[63][j]["y"]]])[0]
+    sf_xy = xf([[loc[ref_num][j]["x"], loc[ref_num][j]["y"]]])[0]
     sf_i = int(cKDTree(cl).query(sf_xy)[1])
     # rotate so index 0 is the start/finish line
     cl = np.roll(cl, -sf_i, 0); z = np.roll(z, -sf_i); speed = np.roll(speed, -sf_i); drs = np.roll(drs, -sf_i)
     # direction check: track should run in the order cars drive
-    p0 = xf([[loc[63][j + 3]["x"], loc[63][j + 3]["y"]]])[0]
+    p0 = xf([[loc[ref_num][j + 3]["x"], loc[ref_num][j + 3]["y"]]])[0]
     if np.linalg.norm(p0 - cl[3]) > np.linalg.norm(p0 - cl[-3]):
         raise SystemExit("centreline runs backwards")
 
@@ -201,6 +263,20 @@ def main():
                 drs_zones.append([s, i - 1])
         i += 1
 
+    track = {
+        "bin": BIN,
+        "center": [[round(float(x), 2), round(float(y), 2)] for x, y in cl],
+        "elev": [round(float(v), 2) for v in z],
+        "speed": [round(float(v)) for v in speed],
+        "drs": drs_zones,
+        "corners": corners,
+        "pit": [[round(x, 2), round(y, 2)] for x, y in pit_osm] if pit_osm else [],
+        "length": round(float(nb * BIN)),
+    }
+    return track, cl
+
+
+def frames_and_meta(loc, car, laps, pits, nums, drivers, xf, track, T1):
     # ------------------------------------------------------------ frames
     nframes = int((T1 - T0).total_seconds() * HZ)
     grid = np.arange(nframes) / HZ
@@ -215,7 +291,8 @@ def main():
         cs = np.array([c["speed"] for c in car[n]])[sidx]
         thr = np.clip(np.array([c["throttle"] for c in car[n]])[sidx], 0, 100)
         gear = np.clip(np.array([c["n_gear"] for c in car[n]])[sidx], 0, 8)
-        dr = (np.array([c["drs"] for c in car[n]])[sidx] >= 10).astype(int)
+        # 2026 cars have no DRS (active aero instead); OpenF1 reports null there
+        dr = (np.array([c["drs"] or 0 for c in car[n]])[sidx] >= 10).astype(int)
         br = (np.array([c["brake"] for c in car[n]])[sidx] > 0).astype(int)
         frames[k, :, 2] = cs
         frames[k, :, 3] = thr | (gear << 7) | (dr << 11) | (br << 12)
@@ -260,12 +337,21 @@ def main():
                  for o in load("overtakes.json") if ts(o["date"]) > 0]
     weather = load("weather.json")
     w = weather[len(weather) // 2]
+    if IS_RACE:
+        start = ts(next(x for x in laps if x["lap_number"] == 1 and x["date_start"])["date_start"])
+    else:
+        start = next((r[0] for r in rc if r[2] == "SessionStatus" and "STARTED" in r[4]), ts(SESSION["date_start"]))
+    year = SESSION["year"]
 
     race = {
-        "event": "Singapore Grand Prix 2025", "circuit": "Marina Bay Street Circuit",
+        "event": f"Singapore Grand Prix {year}", "circuit": "Marina Bay Street Circuit",
+        "session": {"key": SESSION["session_key"], "name": SESSION["session_name"], "type": SESSION["session_type"],
+                    "is_race": IS_RACE, "date": SESSION["date_start"][:10], "id": ARGS.id, "label": ARGS.label,
+                    "end": rnd(ts(SESSION["date_end"]))},
         "t0": T0.isoformat(), "hz": HZ, "frames": nframes,
-        "race_start": rnd(ts(next(x for x in laps if x["lap_number"] == 1)["date_start"])),
-        "total_laps": max(l["lap_number"] for l in laps),
+        "race_start": rnd(start),
+        "total_laps": max(l["lap_number"] for l in laps) if IS_RACE else None,
+        "has_drs": any(c["drs"] is not None for c in car[nums[0]][:2000]),
         "weather": {"air": w["air_temperature"], "track": w["track_temperature"], "humidity": w["humidity"]},
         "drivers": [{
             "num": d["driver_number"], "code": d["name_acronym"], "name": d["full_name"],
@@ -282,20 +368,20 @@ def main():
                   p.get("lane_duration")] for p in pits],
         "race_control": rc,
         "overtakes": overtakes,
-        "track": {
-            "bin": BIN,
-            "center": [[round(float(x), 2), round(float(y), 2)] for x, y in cl],
-            "elev": [round(float(v), 2) for v in z],
-            "speed": [round(float(v)) for v in speed],
-            "drs": drs_zones,
-            "corners": corners,
-            "pit": [[round(x, 2), round(y, 2)] for x, y in pit_osm] if pit_osm else [],
-            "length": round(float(nb * BIN)),
-        },
+        "track": track,
     }
     json.dump(race, open(os.path.join(OUT, "race.json"), "w"), separators=(",", ":"))
-    build_city(osm, cl)
     print("frames", frames.shape, "written to", OUT)
+
+
+def update_index():
+    path = os.path.join(ARGS.data, "sessions.json")
+    idx = json.load(open(path)) if os.path.exists(path) else []
+    idx = [e for e in idx if e["id"] != ARGS.id]
+    idx.append({"id": ARGS.id, "label": ARGS.label, "name": SESSION["session_name"], "year": SESSION["year"],
+                "date": SESSION["date_start"], "is_race": IS_RACE})
+    idx.sort(key=lambda e: e["date"], reverse=True)
+    json.dump(idx, open(path, "w"), indent=1)
 
 
 # ------------------------------------------------------------------ city
@@ -420,7 +506,7 @@ def build_city(osm, cl):
           "landmarks", landmarks)
     city = {"buildings": buildings, "water": water, "parks": parks, "roads": roads, "landmarks": landmarks,
             "centre": [round(float(centre[0]), 1), round(float(centre[1]), 1)], "radius": RADIUS}
-    json.dump(city, open(os.path.join(OUT, "city.json"), "w"), separators=(",", ":"))
+    json.dump(city, open(os.path.join(ARGS.data, "city.json"), "w"), separators=(",", ":"))
 
 
 if __name__ == "__main__":
