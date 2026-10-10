@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { elevatedRoadKeys } from './viaducts.js';
-import { COLORS } from './config.js';
+import { COLORS, NIGHT } from './config.js';
 
 // OSM metres (x east, y north) -> scene (X, Z)
 export const sx = x => x;
@@ -88,6 +88,7 @@ export function buildingMaterial() {
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.35, vertexColors: true });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = buildingTime;
+    shader.uniforms.uNightLift = { value: NIGHT.lift };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute float aSeed; attribute float aTop; attribute float aKind;
@@ -98,7 +99,7 @@ export function buildingMaterial() {
         vWN = normalize(mat3(modelMatrix) * objectNormal);`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        uniform float uTime;
+        uniform float uTime; uniform float uNightLift;
         varying float vSeed; varying float vTop; varying float vKind; varying vec3 vWPos; varying vec3 vWN;` + WINDOW_GLSL)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         {
@@ -194,9 +195,11 @@ export function buildingMaterial() {
           // clay-tile roofs: keep their colour, catch a little warm street light
           totalEmissiveRadiance += isTile * diffuseColor.rgb * vec3(0.16, 0.1, 0.06);
 
-          // flat roofs: dark membrane with a little gravel texture (never the default grey)
-          float grit = bhash(floor(vWPos.xz * 1.3)) * 0.012;
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.03, 0.032, 0.037) + grit, roof * (1.0 - isTile) * (1.0 - isSolid));
+          // flat roofs: dark blue-grey membrane with a little gravel texture (never the default grey,
+          // never pure black), plus a cool night lift so roofscapes stay readable from the air
+          float grit = bhash(floor(vWPos.xz * 1.3)) * 0.02;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05, 0.055, 0.068) + grit, roof * (1.0 - isTile) * (1.0 - isSolid));
+          totalEmissiveRadiance += roof * (1.0 - isTile) * uNightLift * vec3(0.75, 0.85, 1.15);
         }`);
   };
   mat.customProgramCacheKey = () => 'building-v2';
@@ -277,8 +280,10 @@ export function buildCity(scene, city, hidden = () => false) {
   group.add(ground);
 
   // parks
+  // ground layers are only centimetres apart, so their depth order is fixed with polygon offsets
+  // (ground < water < parks < roads): no z-fighting where roads cross the river or a park at range
   const parks = new THREE.Mesh(flatPolys(city.parks, 0.02),
-    new THREE.MeshStandardMaterial({ color: 0x0f261a, roughness: 1, emissive: 0x04100a }));
+    new THREE.MeshStandardMaterial({ color: 0x0f261a, roughness: 1, emissive: 0x04100a, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 }));
   group.add(parks);
 
   // roads: flat ribbons (expressway viaducts are built as elevated decks in viaducts.js)
@@ -301,8 +306,12 @@ export function buildCity(scene, city, hidden = () => false) {
   roadGeo.setAttribute('position', new THREE.Float32BufferAttribute(roadPos, 3));
   roadGeo.setAttribute('normal', new THREE.Float32BufferAttribute(
     new Float32Array(roadPos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  // dark grey-blue asphalt with a warm sodium-light lift (NIGHT.lift), drawn over water / parks
+  const lift = NIGHT.lift;
   const roads = new THREE.Mesh(roadGeo, new THREE.MeshStandardMaterial({
-    color: 0x1c1e25, roughness: 0.9, emissive: 0x1e150a, side: THREE.DoubleSide,
+    color: 0x22252d, roughness: 0.9, side: THREE.DoubleSide,
+    emissive: new THREE.Color(0.1 + lift * 1.4, 0.075 + lift * 1.1, 0.05 + lift * 0.9).multiplyScalar(0.28),
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4,
   }));
   group.add(roads);
 
@@ -497,6 +506,9 @@ export function buildWater(scene, city, renderer) {
     color: 0x9aa6c0, clipBias: 0.002, shader,
   });
   water.position.y = 0.03;
+  water.material.polygonOffset = true;
+  water.material.polygonOffsetFactor = -1;
+  water.material.polygonOffsetUnits = -2;
   scene.add(water);
   return water;
 }

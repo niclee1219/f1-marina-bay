@@ -1,6 +1,7 @@
 // Camera director: free orbit, chase, onboard, helicopter and automatic trackside "TV" cuts.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CAMERA } from './config.js';
 
 export const MODES = ['orbit', 'tv', 'chase', 'onboard', 'heli'];
 // Opening aerial shots (scene coordinates). `narrow` is used on portrait / phone screens.
@@ -16,7 +17,9 @@ export const MODE_LABELS = { orbit: 'Free', tv: 'Broadcast', chase: 'Chase', onb
 
 export class Director {
   // heightAt(x, z, y): height of whatever stands at (x, z); y lets overhead decks block only their own slab
-  constructor(camera, dom, track, heightAt = () => 0) {
+  // surfaceAt(x, z): top of whatever is under the camera (roof, deck), for the free-camera near plane
+  constructor(camera, dom, track, heightAt = () => 0, surfaceAt = () => 0) {
+    this.surfaceAt = surfaceAt;
     this.camera = camera;
     this.track = track;
     this.controls = new OrbitControls(camera, dom);
@@ -86,7 +89,7 @@ export class Director {
     }
   }
 
-  update(dt, focus, playing) {
+  update(dt, focus, playing, simDt = dt) {
     const cam = this.camera;
     this.speedFactor = 0;
     if (this.mode === 'orbit') {
@@ -97,7 +100,14 @@ export class Director {
         cam.position.add(delta);
       }
       this.controls.update();
-      this.setNear(THREE.MathUtils.clamp(cam.position.distanceTo(this.controls.target) * 0.004, 0.3, 12));
+      // near grows with the orbit distance (depth precision for aerials) but stays below the
+      // camera's height above ground, so a bridge deck close to the lens is never sliced off
+      const F = CAMERA.free;
+      const byTarget = cam.position.distanceTo(this.controls.target) * F.nearPerMetre;
+      const below = this.surfaceAt(cam.position.x, cam.position.z);
+      const clearance = cam.position.y > below ? cam.position.y - below : Math.max(0, cam.position.y);
+      const byHeight = clearance * F.nearHeightShare;
+      this.setNear(THREE.MathUtils.clamp(Math.min(byTarget, byHeight), F.nearMin, F.nearMax));
       return;
     }
     if (!focus) return;
@@ -109,8 +119,16 @@ export class Director {
     if (this.first || this.camYaw == null) this.camYaw = target;
     let dy = target - this.camYaw;
     dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-    const k = this.mode === 'onboard' ? 1 - Math.pow(1e-5, dt) : 1 - Math.pow(1e-3, dt);
-    this.camYaw += dy * k;
+    if (this.mode === 'onboard') {
+      // T-cam: follow the (already filtered) car heading through a frame-rate independent
+      // exponential spring, with the yaw rate clamped so a noisy sample can never whip the view
+      const O = CAMERA.onboard;
+      // (in replay time: the car turns 10x faster at 10x, and the camera must keep up)
+      const step = dy * (1 - Math.exp(-O.smoothing * simDt));
+      this.camYaw += THREE.MathUtils.clamp(step, -O.maxYawRate * simDt, O.maxYawRate * simDt);
+    } else {
+      this.camYaw += dy * (1 - Math.pow(1e-3, dt));
+    }
     const d = new THREE.Vector3(Math.sin(this.camYaw), 0, Math.cos(this.camYaw));
     this.time = (this.time || 0) + dt * (playing ? 1 : 0);
     let wantPos, wantLook, fov = 55, lerp = 1 - Math.pow(0.0005, dt);
@@ -122,15 +140,20 @@ export class Director {
       this.speedFactor = sp * 0.7;
       this.setNear(0.15);
     } else if (this.mode === 'onboard') {
-      // T-cam above the airbox, rigidly mounted, with engine/kerb vibration that grows with speed
-      const shake = (0.006 + sp * 0.02) * (playing ? 1 : 0);
+      // T-cam above the airbox. Height follows the car through a spring (soaks up kerb steps);
+      // vibration is low-frequency (no 60 fps aliasing) and scaled by CAMERA.onboard.shake
+      const O = CAMERA.onboard;
+      if (this.first || this.camY == null) this.camY = p.y;
+      this.camY += (p.y - this.camY) * (1 - Math.exp(-O.smoothing * 1.5 * simDt));
+      const shake = (0.006 + sp * 0.02) * O.shake * (playing ? 1 : 0);
       const t = this.time;
       const jitter = new THREE.Vector3(
-        Math.sin(t * 61.3) * shake * 0.6,
-        Math.sin(t * 73.1) * shake + Math.sin(t * 17.7) * shake * 0.5,
+        Math.sin(t * 9.3) * shake * 0.6,
+        Math.sin(t * 13.7) * shake + Math.sin(t * 5.1) * shake * 0.5,
         0);
-      wantPos = p.clone().addScaledVector(d, -0.55).add(new THREE.Vector3(0, 1.42, 0)).add(jitter);
-      wantLook = p.clone().addScaledVector(d, 30).add(new THREE.Vector3(0, 0.35, 0)).add(jitter.multiplyScalar(4));
+      const base = new THREE.Vector3(p.x, this.camY, p.z);
+      wantPos = base.clone().addScaledVector(d, -0.55).add(new THREE.Vector3(0, 1.42, 0)).add(jitter);
+      wantLook = base.clone().addScaledVector(d, 30).add(new THREE.Vector3(0, 0.35, 0)).add(jitter.multiplyScalar(2));
       fov = 64 + sp * 16;
       lerp = 1;
       this.speedFactor = sp;

@@ -16,6 +16,7 @@ import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
 import { Crowd } from './crowd.js';
 import { Director, MODES } from './camera.js';
+import { CAMERA } from './config.js';
 import { UI } from './ui.js';
 
 const pods = [...document.querySelectorAll('.pod')];
@@ -45,7 +46,7 @@ async function boot() {
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x0c1020, 0.00028);
-  const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.3, 20000);
+  const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, CAMERA.free.nearMin, CAMERA.free.far);
 
   scene.add(new THREE.HemisphereLight(0x4a5a8a, 0x1a1210, 0.5));
   const moon = new THREE.DirectionalLight(0x9fb4ff, 0.55);
@@ -69,7 +70,8 @@ async function boot() {
   const pit = buildPitComplex(track.group, city, race, track);
   const cars = new Cars(scene, race, track, bridges);
   const crowd = new Crowd(scene, track, race, pit.decks);
-  const director = new Director(camera, renderer.domElement, track, (x, z, y) => (viaducts.blocks(x, y, z) ? Infinity : heightAt(x, z)));
+  const director = new Director(camera, renderer.domElement, track, (x, z, y) => (viaducts.blocks(x, y, z) ? Infinity : heightAt(x, z)),
+    (x, z) => Math.max(heightAt(x, z), viaducts.topAt(x, z)));
   director.overview();
 
   const composer = new EffectComposer(renderer);
@@ -131,7 +133,7 @@ async function boot() {
   cars.onSelect = k => { state.focusK = k; };
 
   // flat fallback when reflections are off
-  const waterFlat = new THREE.Mesh(water.geometry, new THREE.MeshStandardMaterial({ color: 0x06121f, roughness: 0.25, metalness: 0.6 }));
+  const waterFlat = new THREE.Mesh(water.geometry, new THREE.MeshStandardMaterial({ color: 0x06121f, roughness: 0.25, metalness: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
   waterFlat.position.y = 0.01; waterFlat.visible = false;
   scene.add(waterFlat);
 
@@ -202,7 +204,8 @@ async function boot() {
     state.opts.pixelScale = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     cars.update(t, state.playing ? dt * state.speed : 0, camera.position, state.focusK, state.opts);
     state.opts.jumped = false;
-    director.update(dt, cars.cars[state.focusK], state.playing);
+    // simDt: replay time this frame, so the onboard spring keeps up with the car at 5x-60x
+    director.update(dt, cars.cars[state.focusK], state.playing, state.playing ? dt * state.speed : dt);
 
     // start lights: one per second, out at lights-out
     const ls = race.race_start - t;

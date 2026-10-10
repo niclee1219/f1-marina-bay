@@ -138,5 +138,19 @@ export const PIT_SIGN = {
   halo: [1.0, 0.06, 0.08],   // backlight glow behind the letters (F1 red)
 };
 
+// Night lift for surfaces that otherwise render near-black: flat roofs and off-circuit roads.
+// `lift` is the emissive radiance added (0 = old look, ~0.1 = clearly readable); the track and cars
+// are not affected, so they keep visual priority.
+export const NIGHT = { lift: 0.035 };
+
+// Cameras. onboard.shake scales the T-cam vibration (1 = the old, strong shake; 0 = none);
+// onboard.smoothing is how fast the T-cam follows the car's heading / height (per second; lower =
+// smoother). free: the free camera's depth range (near grows with distance to the orbit target but
+// never beyond `nearHeightShare` of the camera's height above ground, so close decks aren't clipped).
+export const CAMERA = {
+  onboard: { shake: 0.1, smoothing: 7, maxYawRate: 2.4 },
+  free: { nearPerMetre: 0.004, nearHeightShare: 0.35, nearMin: 0.3, nearMax: 12, far: 20000 },
+};
+
 // Title wordmark shown in the HUD.
 export const TITLE = { word: 'SINGAPORE', sub: 'GRAND PRIX' };

@@ -8,6 +8,8 @@ import { LIVERIES, LIVERY_DECALS } from './config.js';
 
 const TRAIL_N = 28;
 const TRAIL_DT = 0.07;
+// car body heading filter: response (1/s) and the fastest plausible yaw rate (rad/s)
+const HEADING_RESPONSE = 14, MAX_YAW_RATE = 3.2;
 // paint slots baked into the body geometry, coloured per team
 const PRIMARY = 0, SECONDARY = 1, ACCENT = 2, CARBON = 3, DARK = 4;
 
@@ -532,11 +534,22 @@ export class Cars {
       const dx = b[0] - a[0], dz = -(b[1] - a[1]);
       const moved = Math.hypot(dx, dz);
       const prevHeading = c.heading;
-      if (moved > 0.4) c.heading = Math.atan2(dx, dz);
+      // heading from the path: low-pass filtered with a yaw-rate limit, so sampling noise in the
+      // positions never shows as the car (or the onboard camera bolted to it) twitching
+      let raw = null;
+      if (moved > 0.4) raw = Math.atan2(dx, dz);
       else if (c.heading === null || opts.jumped) {
         const { i } = this.track.nearest(x, z);
         const tt = this.track.T[i];
-        c.heading = Math.atan2(tt.x, tt.z);
+        raw = Math.atan2(tt.x, tt.z);
+      }
+      if (raw !== null) {
+        if (c.heading === null || opts.jumped || dt <= 0) c.heading = raw;
+        else {
+          let dh = raw - c.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+          const step = dh * (1 - Math.exp(-HEADING_RESPONSE * dt));
+          c.heading += THREE.MathUtils.clamp(step, -MAX_YAW_RATE * dt, MAX_YAW_RATE * dt);
+        }
       }
       const yNear = this.elevation(x, z, c);
       const y = c.xy[3] ? c.xy[2] + 0.18 : yNear; // on track: elevation straight from the curve

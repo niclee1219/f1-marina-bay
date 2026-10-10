@@ -719,9 +719,9 @@ function padang(city, M, lm) {
   if (lawnRing) {
     const sh = new THREE.Shape(Array.from({ length: lawnRing.length / 2 }, (_, i) => new THREE.Vector2(lawnRing[i * 2], lawnRing[i * 2 + 1])));
     const lawn = new THREE.ShapeGeometry(sh).rotateX(-Math.PI / 2).translate(0, 0.05, 0);
-    g.add(new THREE.Mesh(fixUp(lawn), new THREE.MeshStandardMaterial({ color: 0x2f5f2a, roughness: 0.95, emissive: new THREE.Color(0.02, 0.07, 0.025) })));
+    g.add(new THREE.Mesh(fixUp(lawn), new THREE.MeshStandardMaterial({ color: 0x2f5f2a, roughness: 0.95, emissive: new THREE.Color(0.02, 0.07, 0.025), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -5 })));
     const sq = new THREE.PlaneGeometry(22, 4).rotateX(-Math.PI / 2).rotateY(-pad.dir).translate(pad.x + Math.cos(pad.dir) * 40, 0.08, -(pad.y + Math.sin(pad.dir) * 40));
-    g.add(new THREE.Mesh(sq, new THREE.MeshStandardMaterial({ color: 0x8d7d58, roughness: 1, emissive: 0x1a160c })));
+    g.add(new THREE.Mesh(sq, new THREE.MeshStandardMaterial({ color: 0x8d7d58, roughness: 1, emissive: 0x1a160c, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -6 })));
     g.add(new THREE.Mesh(new THREE.TorusGeometry(62, 0.12, 3, 96).rotateX(Math.PI / 2).translate(pad.x + Math.cos(pad.dir) * 40, 0.15, -(pad.y + Math.sin(pad.dir) * 40)), M.led));
   }
 

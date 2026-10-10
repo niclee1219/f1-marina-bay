@@ -97,7 +97,10 @@ export class Viaducts {
     this.city = city;
     this.track = track;
     this.deck = city.bridgeDeck || 2;
-    this.ways = city.bridges || [];
+    // Where a ramp branches off the mainline, two OSM ways overlap at exactly the same height and
+    // their decks z-fight. Step each road way by a few centimetres so no two are coplanar.
+    this.ways = (city.bridges || []).map((w, i) => (w.kind !== 'road' ? w
+      : { ...w, p: w.p.map(([x, y, h]) => [x, y, h + (i % 3) * 0.12]) }));
     this.zones = this.findZones(race);
     // deck slabs on a 20 m grid, for line-of-sight tests (trackside camera placement)
     this.cells = new Map();
@@ -109,6 +112,18 @@ export class Viaducts {
         this.cells.get(key).push({ x: p.x, z: p.z, r: w.w / 2 + 1, y0: p.y - this.deck - 1, y1: p.y + (w.kind === 'foot' ? 3.6 : 1.6) });
       }
     }
+  }
+
+  // highest deck surface (top of parapet / canopy) above scene (x, z), 0 if none
+  topAt(x, z) {
+    const cx = Math.floor(x / 20), cz = Math.floor(z / 20);
+    let top = 0;
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      for (const d of this.cells.get(`${cx + i},${cz + j}`) || []) {
+        if ((d.x - x) ** 2 + (d.z - z) ** 2 < d.r * d.r) top = Math.max(top, d.y1);
+      }
+    }
+    return top;
   }
 
   // true when the point (scene x, y, z) is inside a deck slab

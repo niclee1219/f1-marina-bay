@@ -255,7 +255,8 @@ export class Bridges {
     const rows = [];
     for (let i = z.i0; i <= z.i1; i++) rows.push(i);
     const r0 = east > 0 ? WALL + 1.2 : o0 + 0.6, r1 = east > 0 ? o1 - 0.6 : -WALL - 1.2;
-    parts.road.push(strip(rows.map(i => this.pt(i, r1, 0.0)), rows.map(i => this.pt(i, r0, 0.0)), true));
+    // 8 cm above the pavement strip it overlaps (2 cm z-fought at range)
+    parts.road.push(strip(rows.map(i => this.pt(i, r1, 0.08)), rows.map(i => this.pt(i, r0, 0.08)), true));
     // spans: piers in the water, arched soffits rising to the deck at mid-span
     const nSpan = 5, len = z.i1 - z.i0;
     for (let s = 0; s < nSpan; s++) {
