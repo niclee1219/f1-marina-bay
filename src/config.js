@@ -164,6 +164,11 @@ export const CAMERA = {
 // Title wordmark shown in the HUD.
 export const TITLE = { word: 'SINGAPORE', sub: 'GRAND PRIX' };
 
+// City traffic (src/traffic.js): roads at least minWidth wide, kept circuitGap metres clear of the
+// circuit (closed for the race); one vehicle per `spacing` metres of road, at most `max`;
+// `buses` is the share of buses.
+export const TRAFFIC = { minWidth: 7, circuitGap: 22, minPath: 60, spacing: 38, max: 700, buses: 0.05 };
+
 // Car size in the free / broadcast / helicopter cameras: real size within `dist` metres of the
 // camera, then grown with distance (so a far car still shows) up to `max` times real size.
 export const CAR_ZOOM = { dist: 300, max: 3 };

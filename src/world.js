@@ -268,6 +268,174 @@ function hipRoof(o, y0, rise) {
   return g;
 }
 
+// Roofscapes for big flat roofs (malls, offices, podiums, condos), so they read from the air at
+// night instead of as dark slabs: HVAC units and cooling towers everywhere; then by building one
+// of glowing atrium skylights, solar arrays or a roof garden; condos get a lit pool deck and garden.
+const ROOF = { minArea: 700, maxHeight: 160 };
+
+function insidePoly(flat, x, y) {
+  let inside = false;
+  for (let i = 0, j = flat.length - 2; i < flat.length; j = i, i += 2) {
+    const xi = flat[i], yi = flat[i + 1], xj = flat[j], yj = flat[j + 1];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// D: { solid(geo, top), lit, pool, solar, green, lines: geometries; trees, cars, lamps: instances }
+function roofDecor(b, o, area, seed, kind, D) {
+  let s = Math.floor(seed * 2147483646) + 1;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const top = b.h, L = o.len / 2, W = o.wid / 2;
+  // a footprint (u along the long axis, v across) is on the roof if its corners are
+  const fits = (u, v, hl, hw) => [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0]].every(([a, c]) => {
+    const p = local(o, u + a * hl, v + c * hw);
+    return insidePoly(b.p, p.x, p.y);
+  });
+  const box = (u, v, l, w, h, y0) => {
+    const p = local(o, u, v);
+    return new THREE.BoxGeometry(l, h, w).rotateY(o.a).translate(p.x, y0 + h / 2, -p.y);
+  };
+  const spot = (hl, hw, tries = 12) => {
+    for (let k = 0; k < tries; k++) {
+      const u = (rnd() * 2 - 1) * Math.max(0, L - hl - 2), v = (rnd() * 2 - 1) * Math.max(0, W - hw - 2);
+      if (fits(u, v, hl + 1.5, hw + 1.5)) return [u, v];
+    }
+    return null;
+  };
+  const condo = kind === KIND.residential;
+  // low, large podiums and malls often carry a car park on the roof
+  const parkable = !condo && b.h < 45 && area > 4000 && W > 14;
+  const style = condo ? 'condo' : parkable && rnd() < 0.5 ? 'carpark' : ['atrium', 'solar', 'garden'][Math.floor(rnd() * 3)];
+
+  if (style === 'carpark') {
+    // rows of bays either side of lit aisles: painted lines, parked cars, lamp posts
+    const aisle = 7, bay = 5.2, pitch = 2.6, rowW = aisle + bay * 2;
+    for (let v = -W + 3 + rowW / 2; v < W - 3 - rowW / 2; v += rowW + 1) {
+      for (let u = -L + 4; u < L - 4; u += pitch) {
+        for (const side of [-1, 1]) {
+          const vc = v + side * (aisle / 2 + bay / 2);
+          if (!fits(u, vc, pitch / 2, bay / 2)) continue;
+          D.lines.push(box(u - pitch / 2, vc, 0.14, bay, 0.06, top));
+          if (rnd() < 0.62) {
+            const p = local(o, u, vc);
+            D.cars.push([p.x, top, -p.y, o.a + Math.PI / 2 + (rnd() - 0.5) * 0.08, Math.floor(rnd() * 8)]);
+          }
+        }
+        if (Math.abs(((u + L) % 26) - 13) < pitch / 2 && fits(u, v, 1, 1)) {
+          const p = local(o, u, v);
+          D.solid(new THREE.CylinderGeometry(0.14, 0.18, 7, 6).translate(p.x, top + 3.5, -p.y), top + 7);
+          D.lamps.push([p.x, top + 7.1, -p.y]);
+        }
+      }
+    }
+  }
+
+  // HVAC units in loose clusters, plus a couple of cooling towers on offices and malls
+  const units = Math.round(THREE.MathUtils.clamp(area / (condo ? 500 : 200), 4, style === 'carpark' ? 14 : 80));
+  for (let k = 0; k < units; k++) {
+    const l = 2 + rnd() * 4, w = 1.5 + rnd() * 2.5, h = 1.2 + rnd() * 2.2;
+    const at = spot(l / 2, w / 2);
+    if (at) D.solid(box(at[0], at[1], l, w, h, top), top + h);
+  }
+  if (!condo) {
+    for (let k = 0; k < 1 + Math.floor(rnd() * 3); k++) {
+      const at = spot(3.5, 3.5);
+      if (!at) continue;
+      const p = local(o, at[0], at[1]);
+      D.solid(new THREE.CylinderGeometry(3, 3.4, 4.5, 14).translate(p.x, top + 2.25, -p.y), top + 4.5);
+      D.lit.push(new THREE.CircleGeometry(2.4, 14).rotateX(-Math.PI / 2).translate(p.x, top + 4.55, -p.y));
+    }
+  }
+  if (style === 'atrium') {
+    // long skylight strips over the atrium, lit warm from the mall below
+    const n = 1 + Math.floor(rnd() * 3), len = L * (0.8 + rnd() * 0.6), w = 3 + rnd() * 4;
+    for (let k = 0; k < n; k++) {
+      const v = (k - (n - 1) / 2) * (w + 4);
+      if (fits(0, v, len / 2, w / 2)) D.lit.push(box(0, v, len, w, 0.5, top));
+    }
+  } else if (style === 'solar') {
+    // rows of tilted panels across the roof
+    for (let v = -W + 4; v < W - 4; v += 3.2) {
+      for (let u = -L + 5; u < L - 5; u += 7) {
+        if (!fits(u, v, 3, 1)) continue;
+        const p = local(o, u, v);
+        D.solar.push(new THREE.BoxGeometry(6, 0.08, 1.9).rotateX(0.3).rotateY(o.a).translate(p.x, top + 0.9, -p.y));
+      }
+    }
+  }
+  if (style === 'garden' || condo) {
+    // a planted roof garden with trees, and on condos a lit pool beside it
+    const gl = Math.min(L * 0.7, 40), gw = Math.min(W * 0.6, 18), g = spot(gl / 2, gw / 2);
+    if (g) {
+      D.green.push(box(g[0], g[1], gl, gw, 0.4, top));
+      for (let k = 0; k < Math.round(gl * gw / 60) + 2; k++) {
+        const u = g[0] + (rnd() - 0.5) * gl * 0.85, v = g[1] + (rnd() - 0.5) * gw * 0.8, p = local(o, u, v);
+        D.trees.push([p.x, top + 0.4, -p.y, 1.4 + rnd() * 1.6]);
+      }
+    }
+    if (condo) {
+      const pl = Math.min(L * 0.8, 25), pw = Math.min(W * 0.5, 9), at = spot(pl / 2, pw / 2);
+      if (at) D.pool.push(box(at[0], at[1], pl, pw, 0.3, top));
+    }
+  }
+}
+
+// everyday car colours (white and silver dominate in Singapore), shared with the road traffic
+export const CAR_PAINT = ['#e9eaec', '#c3c6cb', '#1b1c1f', '#7c8088', '#e9eaec', '#8c1d1d', '#1f3a6b', '#c3c6cb'];
+
+let _glow;
+// soft round light pool, for lamps shining on the ground
+export function glowTexture() {
+  if (_glow) return _glow;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.5, 'rgba(255,255,255,.35)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  return (_glow = new THREE.CanvasTexture(c));
+}
+
+function buildRoofscape(group, D) {
+  const add = (list, mat) => { if (list.length) group.add(new THREE.Mesh(mergeGeometries(list.map(g => (g.index ? g.toNonIndexed() : g))), mat)); };
+  add(D.lit, new THREE.MeshBasicMaterial({ color: new THREE.Color(1.25, 1.02, 0.72) }));
+  add(D.pool, new THREE.MeshBasicMaterial({ color: new THREE.Color(0.18, 0.85, 1.15) }));
+  add(D.solar, new THREE.MeshStandardMaterial({ color: 0x0d1d3d, roughness: 0.25, metalness: 0.6, emissive: 0x050b18 }));
+  add(D.green, new THREE.MeshStandardMaterial({ color: 0x173d22, roughness: 1, emissive: 0x06190c }));
+  add(D.lines, new THREE.MeshBasicMaterial({ color: new THREE.Color(0.55, 0.55, 0.52) }));
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  if (D.cars.length) {
+    const body = new THREE.BoxGeometry(1.8, 1.0, 4.4).translate(0, 0.5, 0);
+    const cabin = new THREE.BoxGeometry(1.6, 0.55, 2.3).translate(0, 1.27, -0.2);
+    const cars = new THREE.InstancedMesh(mergeGeometries([body, cabin]),
+      new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.5 }), D.cars.length);
+    const c = new THREE.Color();
+    D.cars.forEach(([x, y, z, a, k], i) => {
+      cars.setMatrixAt(i, m4.compose(new THREE.Vector3(x, y, z), q.setFromAxisAngle(up, a), new THREE.Vector3(1, 1, 1)));
+      cars.setColorAt(i, c.set(CAR_PAINT[k % CAR_PAINT.length]));
+    });
+    group.add(cars);
+  }
+  if (D.lamps.length) {
+    const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.45, 8, 6),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.9, 1.2) }), D.lamps.length);
+    const pools = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: glowTexture(), color: new THREE.Color(0.3, 0.23, 0.13), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), D.lamps.length);
+    D.lamps.forEach(([x, y, z], i) => {
+      heads.setMatrixAt(i, m4.makeTranslation(x, y, z));
+      pools.setMatrixAt(i, m4.makeScale(20, 1, 20).setPosition(x, y - 7.0, z));
+    });
+    group.add(heads, pools);
+  }
+  if (D.trees.length) {
+    const trees = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1),
+      new THREE.MeshStandardMaterial({ color: 0x245e30, roughness: 0.9, emissive: 0x0a2410 }), D.trees.length);
+    const m = new THREE.Matrix4();
+    D.trees.forEach(([x, y, z, r], i) => trees.setMatrixAt(i, m.makeScale(r, r * 1.15, r).setPosition(x, y + r, z)));
+    group.add(trees);
+  }
+}
+
 export function buildCity(scene, city, hidden = () => false) {
   const group = new THREE.Group();
   scene.add(group);
@@ -324,6 +492,11 @@ export function buildCity(scene, city, hidden = () => false) {
     g.translate(0, from, 0);
     geos.push(tagBuilding(g, seed, top, color, kind));
   };
+  const hvac = new THREE.Color(0.2, 0.21, 0.23);
+  const decor = {
+    solid: (g, top) => geos.push(tagBuilding(g, 0.5, top, hvac, KIND.solid)),
+    lit: [], pool: [], solar: [], green: [], trees: [], lines: [], cars: [], lamps: [],
+  };
   const centre = { x: city.centre[0], y: city.centre[1] };
   const tallest = city.buildings.filter(b => !hidden(b.n)).map(b => b.h).sort((a, b) => b - a)[24] || 150;
   city.buildings.forEach((b, idx) => {
@@ -368,9 +541,11 @@ export function buildCity(scene, city, hidden = () => false) {
       else block(scaledShape(b.p, 0.97), b.h, b.h + 0.6, seed, b.h, tile, KIND.tile);
       return;
     }
-    // roof furniture: plant rooms, residential water tanks, helipads (OSM)
+    // roof furniture: plant rooms, residential water tanks, helipads (OSM); big flat roofs get a
+    // roofscape instead of one plant room (roofDecor: HVAC, skylights, solar, gardens, pools)
     const plant = new THREE.Color(0.07, 0.075, 0.08);
-    if (b.h > 18 && area > 160) block(scaledShape(b.p, 0.38), b.h, b.h + 3.2, seed, b.h + 3.2, plant, KIND.solid);
+    if (area > ROOF.minArea && b.h < ROOF.maxHeight) roofDecor(b, o, area, seed, kind, decor);
+    else if (b.h > 18 && area > 160) block(scaledShape(b.p, 0.38), b.h, b.h + 3.2, seed, b.h + 3.2, plant, KIND.solid);
     if (kind === KIND.residential && b.h > 20 && area > 200) {
       for (const s of [-1, 1]) {
         const p = local(o, s * o.len * 0.22, 0);
@@ -394,6 +569,7 @@ export function buildCity(scene, city, hidden = () => false) {
       }
     }
   });
+  buildRoofscape(group, decor);
   const merged = fixNormals(mergeGeometries(geos));
   const buildings = new THREE.Mesh(merged, buildingMaterial());
   group.add(buildings);

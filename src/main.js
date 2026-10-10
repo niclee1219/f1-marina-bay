@@ -15,6 +15,7 @@ import { Bridges } from './bridges.js';
 import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
 import { Crowd } from './crowd.js';
+import { Traffic } from './traffic.js';
 import { Director, MODES } from './camera.js';
 import { Cockpit } from './cockpit.js';
 import { CAMERA, HAZE } from './config.js';
@@ -85,6 +86,7 @@ async function boot() {
   const pit = buildPitComplex(track.group, city, race, track);
   const cars = new Cars(scene, race, track, bridges);
   const crowd = new Crowd(scene, track, race, pit.decks);
+  const traffic = new Traffic(scene, city, track);
   const director = new Director(camera, renderer.domElement, track, (x, z, y) => (viaducts.blocks(x, y, z) ? Infinity : heightAt(x, z)),
     (x, z) => Math.max(heightAt(x, z), viaducts.topAt(x, z)));
   director.overview();
@@ -244,6 +246,7 @@ async function boot() {
     updateCity(dt);
     skyline.update(dt);
     crowd.update(dt, cars.cars, camera.position);
+    traffic.update(dt);
     track.update(dt);
     // speed blur follows the focused car's speed (only while playing)
     const want = state.playing ? (director.speedFactor || 0) * 0.075 * Math.min(1, state.speed) : 0;
