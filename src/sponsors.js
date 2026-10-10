@@ -110,6 +110,9 @@ const AFTER = {
 
 const LOGOS = new Map();   // sponsor name -> loaded Image
 
+// loaded logo image for a sponsor name (after loadLogos), or undefined
+export const logoImage = name => LOGOS.get(name);
+
 // Preload every configured logo before the atlas is drawn. Resolves even when some fail.
 export async function loadLogos() {
   await Promise.all(SPONSORS.filter(s => s.logo).map(s => new Promise(resolve => {

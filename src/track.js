@@ -1,8 +1,8 @@
 // Circuit geometry, sampled every ~2 m from the same smooth curve the cars are positioned on.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CROWD } from './config.js';
-import { sponsorAtlas, boardTexture, titleSponsor, BOARD_UV_GLSL } from './sponsors.js';
+import { CROWD, HAZE } from './config.js';
+import { sponsorAtlas, boardTexture, titleSponsor, BOARD_UV_GLSL, logoImage } from './sponsors.js';
 
 const HALF = 7.0;           // half track width (m)
 const LIFT = 0.18;          // track surface above ground
@@ -234,19 +234,28 @@ export class Track {
           }`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           float along = fract(vTrackUv.y / 32.0);
-          float pool = exp(-pow((along - 0.5) * 3.2, 2.0));
+          float pa = (along - 0.5) * 3.2; float pool = exp(-pa * pa);   // (pow() of a negative base is NaN in GLSL)
           float side = 1.0 - smoothstep(0.0, 1.0, abs(vTrackUv.x - 0.5) * 2.0) * 0.45;
           totalEmissiveRadiance += vec3(0.07, 0.072, 0.08) * (0.55 + 1.0 * pool) * side;
-          diffuseColor.rgb *= 1.0 - 0.2 * exp(-pow((vTrackUv.x - 0.5) * 4.0, 2.0));
+          float px = (vTrackUv.x - 0.5) * 4.0; diffuseColor.rgb *= 1.0 - 0.2 * exp(-px * px);
           // bridge zones: the deck structure blocks part of the floodlighting
           float zs = zoneShade(vTrackUv.y);
           diffuseColor.rgb *= zs; totalEmissiveRadiance *= zs;`);
     };
     g.add(new THREE.Mesh(this.ribbon(-HALF, HALF, 0), asphalt));
-    // run-off / shoulder up to the wall
-    const shoulderMat = new THREE.MeshStandardMaterial({ color: 0x1b1d23, roughness: 0.95, emissive: 0x08090b });
-    g.add(new THREE.Mesh(this.ribbon(HALF, WALL, -0.03), shoulderMat));
-    g.add(new THREE.Mesh(this.ribbon(-WALL, -HALF, -0.03), shoulderMat));
+    // painted verges up to the wall, as at Marina Bay: a yellow band on the track edge, a thin
+    // white line, then Singapore blue (references/). uv.x runs inner -> outer edge of each ribbon.
+    const verge = (flip) => {
+      const t = canvasTex(256, 4, (c, w, h) => {
+        const band = (a, b, col) => { c.fillStyle = col; c.fillRect(Math.round(a * w), 0, Math.ceil((b - a) * w), h); };
+        band(0, 0.2, '#e8b923'); band(0.2, 0.26, '#f2f2f2'); band(0.26, 1, '#24379a');
+      });
+      t.wrapS = THREE.ClampToEdgeWrapping;
+      if (flip) { t.repeat.x = -1; t.offset.x = 1; }
+      return new THREE.MeshStandardMaterial({ map: t, roughness: 0.85, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.07 });
+    };
+    g.add(new THREE.Mesh(this.ribbon(HALF, WALL, -0.03), verge(false)));
+    g.add(new THREE.Mesh(this.ribbon(-WALL, -HALF, -0.03), verge(true)));
 
     // ---------- white edge lines
     const lineMat = decal(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.8, 0.8, 0.8) }));
@@ -308,9 +317,11 @@ export class Track {
     this.buildLights(g);
     this.buildMarshals(g);
     this.buildBrakeBoards(g);
+    this.buildStartGantries(g);
     this.buildGantries(g);
     this.buildStart(g, race);
     this.buildPit(g, race);
+    this.buildLanterns(g, this.pitSide || 1);
     this.buildGrandstands(g);
     return g;
   }
@@ -378,6 +389,28 @@ export class Track {
     this.instances(g, 'poles', mergeGeometries([poleGeo, armGeo]), new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.6, roughness: 0.5 }), items);
     this.instances(g, 'heads', new THREE.BoxGeometry(2.6, 0.35, 1.2).translate(0, 10.8, 5.2),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.15, 2.0) }), items);
+    // light shafts in the humid night air under each head: brightest at the lamp, fading to the
+    // ground and away near the camera (so onboard / chase views never flash through them)
+    if (HAZE.shafts > 0) {
+      const cone = new THREE.ConeGeometry(5.5, 10.4, 18, 1, true).translate(0, 10.6 - 5.2, 5.2);
+      const shaftMat = new THREE.ShaderMaterial({
+        uniforms: { c: { value: new THREE.Color(1.0, 0.95, 0.85).multiplyScalar(HAZE.shafts) } },
+        vertexShader: `varying float vH; varying float vD;
+          void main(){
+            vH = uv.y;
+            vec4 mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+            vD = -mv.z;
+            gl_Position = projectionMatrix * mv;
+          }`,
+        fragmentShader: `uniform vec3 c; varying float vH; varying float vD;
+          void main(){
+            float a = pow(clamp(vH, 0.0, 1.0), 1.6) * smoothstep(6.0, 40.0, vD) * (1.0 - smoothstep(900.0, 2500.0, vD));
+            gl_FragColor = vec4(c * a, 1.0);
+          }`,
+        transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+      });
+      this.instances(g, 'shafts', cone, shaftMat, items);
+    }
   }
 
   buildMarshals(g) {
@@ -418,13 +451,107 @@ export class Track {
     g.add(new THREE.Mesh(mergeGeometries(posts), new THREE.MeshStandardMaterial({ color: 0x8c929c })));
   }
 
+  // A banner gantry spanning the track at sample i. draw(ctx, w, h) paints the banner face.
+  bannerGantry(g, i, draw, height = 9) {
+    const p = this.P[i], t = this.T[i], span = WALL * 2 + 3;
+    const gr = new THREE.Group();
+    const steel = new THREE.MeshStandardMaterial({ color: 0x23262d, metalness: 0.7, roughness: 0.4 });
+    gr.add(new THREE.Mesh(new THREE.BoxGeometry(span, 3.4, 1.4).translate(0, height, 0), steel));
+    for (const sgn of [-1, 1]) gr.add(new THREE.Mesh(new THREE.BoxGeometry(0.8, height + 1.7, 0.8).translate(sgn * (span / 2 - 0.4), (height + 1.7) / 2, 0), steel));
+    const tex = canvasTex(2048, 256, draw, false);
+    const mat = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.75, roughness: 0.6 });
+    for (const face of [-1, 1]) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(span - 2, 3.0), mat);
+      m.position.set(0, height, face * 0.72);
+      m.rotation.y = face > 0 ? 0 : Math.PI;
+      gr.add(m);
+    }
+    gr.position.set(p.x, p.y - LIFT, p.z);
+    gr.rotation.y = Math.atan2(-t.x, -t.z);
+    g.add(gr);
+  }
+
+  buildStartGantries(g) {
+    const at = s => Math.round((((s % this.length) + this.length) % this.length) / this.bin);
+    // red destination banner past the line (ref: SINGAPORE in white on coral red)
+    this.bannerGantry(g, at(150), (c, w, h) => {
+      c.fillStyle = '#ee4a4f'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#ffffff'; c.font = `700 ${Math.round(h * 0.62)}px "Titillium Web", sans-serif`;
+      c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('Singapore', w / 2, h * 0.55);
+    }, 10);
+    // Singapore Airlines over the run to the line, logo recoloured white on navy
+    this.bannerGantry(g, at(-300), (c, w, h) => {
+      c.fillStyle = '#13265f'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#f6b221'; c.fillRect(0, h - 14, w, 14);
+      const img = logoImage('Singapore Airlines');
+      if (img) {
+        const ar = img.naturalWidth / img.naturalHeight, dh = h * 0.42, dw = Math.min(w * 0.8, dh * ar);
+        const t = document.createElement('canvas'); t.width = Math.ceil(dw); t.height = Math.ceil(dw / ar);
+        const tc = t.getContext('2d'); tc.drawImage(img, 0, 0, t.width, t.height);
+        tc.globalCompositeOperation = 'source-in'; tc.fillStyle = '#ffffff'; tc.fillRect(0, 0, t.width, t.height);
+        c.drawImage(t, (w - dw) / 2, (h - dw / ar) / 2 - 6, dw, dw / ar);
+      } else {
+        c.fillStyle = '#ffffff'; c.font = `700 ${Math.round(h * 0.4)}px "Titillium Web", sans-serif`;
+        c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('SINGAPORE AIRLINES', w / 2, h / 2);
+      }
+    }, 8.5);
+    this.specialGantries = [at(150), at(-300)];
+  }
+
+  // Glowing paper lanterns (orange, white, red) strung behind the grandstand side of the pit
+  // straight, as in the race-night photos; they sway a little.
+  buildLanterns(g, pitSide) {
+    const items = [];
+    const s0 = this.length - 420, s1 = this.length + 380;
+    let k = 0;
+    for (let s = s0; s < s1; s += 9, k++) {
+      const i = Math.round((s % this.length) / this.bin) % this.n;
+      for (const [o, h] of [[WALL + 30, 10.5], [WALL + 37, 8]]) {
+        const p = this.at(i, -pitSide * o, h - LIFT);
+        items.push({ p, c: [[2.3, 0.95, 0.32], [2.1, 2.0, 1.8], [2.3, 0.38, 0.25]][(k + (o > WALL + 33 ? 1 : 0)) % 3] });
+      }
+    }
+    const geo = new THREE.SphereGeometry(0.75, 12, 8);
+    const inst = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff }), items.length);
+    const glowTex = canvasTex(64, 64, (c, w, h) => {
+      const gr = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.3, 'rgba(255,255,255,0.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = gr; c.fillRect(0, 0, w, h);
+    }, false);
+    const glows = new THREE.InstancedMesh(new THREE.PlaneGeometry(4.5, 4.5), new THREE.MeshBasicMaterial({
+      map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    }), items.length);
+    const m4 = new THREE.Matrix4(), col = new THREE.Color();
+    items.forEach((it, j) => {
+      inst.setMatrixAt(j, m4.makeTranslation(it.p.x, it.p.y, it.p.z));
+      inst.setColorAt(j, col.setRGB(...it.c));
+      glows.setColorAt(j, col.setRGB(...it.c).multiplyScalar(0.28));
+    });
+    g.add(inst, glows);
+    const q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3();
+    let time = 0;
+    this.animated.push(dt => {
+      time += dt;
+      // sway, and keep the glow cards facing the camera (they are flat quads)
+      const cam = this.cameraRef;
+      items.forEach((it, j) => {
+        pos.copy(it.p); pos.y += Math.sin(time * 1.3 + j) * 0.15;
+        m4.makeTranslation(pos.x, pos.y, pos.z); inst.setMatrixAt(j, m4);
+        if (cam) q.copy(cam.quaternion);
+        m4.compose(pos, q, one); glows.setMatrixAt(j, m4);
+      });
+      inst.instanceMatrix.needsUpdate = true; glows.instanceMatrix.needsUpdate = true;
+    });
+  }
+
   buildGantries(g) {
     // sponsor bridges over the straights, with an LED ticker on each face
     const picks = [];
     for (let i = 60; i < this.n - 60; i += 5) {
       let flat = true;
       for (let k = -14; k <= 14; k++) if (Math.abs(this.curv[(i + k) % this.n]) > 0.004) { flat = false; break; }
-      if (flat && !this.underDeck(i, 30) && picks.every(p => Math.abs(p - i) > 280)) picks.push(i);
+      const nearSpecial = (this.specialGantries || []).some(j => Math.min(Math.abs(j - i), this.n - Math.abs(j - i)) * this.bin < 160);
+      if (flat && !nearSpecial && !this.underDeck(i, 30) && picks.every(p => Math.abs(p - i) > 280)) picks.push(i);
     }
     const ticker = canvasTex(1024, 64, (c, w, h) => {
       c.fillStyle = '#07070b'; c.fillRect(0, 0, w, h);
@@ -554,6 +681,8 @@ export class Track {
     const mid = pts[pts.length >> 1];
     const { i } = this.nearest(mid.x, mid.z);
     const away = new THREE.Vector3().subVectors(mid, this.P[i]).setY(0).normalize();
+    // which side of the start straight the pit lane is on (+1 = +N)
+    this.pitSide = Math.sign(this.N[0].dot(new THREE.Vector3().subVectors(pts[pts.length >> 1], this.P[0]).setY(0))) || 1;
     const curve = new THREE.CatmullRomCurve3(pts);
     const N = 200, W = 5.5;
     const pos = [], idx = [], frames = [];
@@ -570,6 +699,24 @@ export class Track {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setIndex(idx); geo.computeVertexNormals();
     g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2a2c33, roughness: 0.8, emissive: 0x18191d, side: THREE.DoubleSide })));
+    // painted lines: white lane edges, and the blue / green bands between the fast lane (track
+    // side) and the working lane in front of the garages
+    const stripe = (o0, o1, col, lift = 0.02) => {
+      const sp = [], si = [];
+      frames.forEach((fr, k) => {
+        const a0 = o0 * fr.side, a1 = o1 * fr.side;
+        sp.push(fr.p.x + fr.nrm.x * a0, fr.y + lift, fr.p.z + fr.nrm.z * a0, fr.p.x + fr.nrm.x * a1, fr.y + lift, fr.p.z + fr.nrm.z * a1);
+        if (k) { const q = (k - 1) * 2; si.push(q, q + 2, q + 1, q + 1, q + 2, q + 3); }
+      });
+      const sg = new THREE.BufferGeometry();
+      sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+      sg.setIndex(si); sg.computeVertexNormals();
+      g.add(new THREE.Mesh(sg, decal(new THREE.MeshStandardMaterial({ color: col, roughness: 0.7, emissive: new THREE.Color(col).multiplyScalar(0.25), side: THREE.DoubleSide }))));
+    };
+    stripe(W - 0.45, W - 0.2, 0xf2f2f2);
+    stripe(-W + 0.2, -W + 0.45, 0xf2f2f2);
+    stripe(-0.15, 0.55, 0x2f6fd6);
+    stripe(-0.85, -0.15, 0x56b947);
     // the pit building itself is built in pit.js
   }
 

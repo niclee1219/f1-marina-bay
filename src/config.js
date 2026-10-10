@@ -3,7 +3,7 @@
 // maps them to (X, Z) = (x, -y).
 
 export const COLORS = {
-  night: 0x0c1020,               // horizon haze (matches the scene fog)
+  night: 0x131528,               // horizon haze (matches the scene fog)
   lampWarm: [2.4, 1.55, 0.75],   // HDR sodium lamps on the bridges (bloom picks these up)
   heritageWhite: 0xe9e4d8,       // floodlit colonial buildings around the Padang
   copperDome: 0x5f9c86,          // Old Supreme Court dome
@@ -127,21 +127,25 @@ export const CROWD = {
   padangStand: { s: 2390, len: 130, toward: [-682, 78] },
 };
 
-// Backlit lettering standing on the pit building roof (pit.js). Sized to read from the default
-// overview camera: letters are spread along the whole roof and face the side that camera sees.
+// SINGAPORE lettering painted flat on the pit building roof (pit.js), one letter per roof bay,
+// read from the south end like the overhead TV shot (references/). fill: share of the roof length
+// the word spans; letter: letter height as a share of its bay; face: HDR white.
 export const PIT_SIGN = {
   word: 'SINGAPORE',
-  height: 19,          // letter cap height (m)
-  lift: 3.5,           // gap between the roof slab and the bottom of the letters (truss)
-  fill: 0.88,          // fraction of the roof length the word spans
-  face: [1.12, 1.1, 1.05],  // letter face (just over 1 so bloom adds a soft edge without smearing)
-  halo: [1.0, 0.06, 0.08],   // backlight glow behind the letters (F1 red)
+  fill: 0.94,
+  letter: 0.62,
+  face: [0.82, 0.82, 0.8],   // under the bloom threshold (0.9), so the letters stay crisp
 };
 
 // Night lift for surfaces that otherwise render near-black: flat roofs and off-circuit roads.
 // `lift` is the emissive radiance added (0 = old look, ~0.1 = clearly readable); the track and cars
 // are not affected, so they keep visual priority.
 export const NIGHT = { lift: 0.035 };
+
+// Race-night atmosphere: humid haze that the floodlights and the city glow light up.
+// fog: colour / density of the scene fog; shafts: brightness of the light shafts under the track
+// floodlights (0 = off).
+export const HAZE = { fogColor: 0x131528, fogDensity: 0.00034, shafts: 0.05 };
 
 // Cameras. onboard.shake scales the T-cam vibration (1 = the old, strong shake; 0 = none);
 // onboard.smoothing is how fast the T-cam follows the car's heading / height (per second; lower =

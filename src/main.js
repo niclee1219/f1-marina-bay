@@ -16,7 +16,7 @@ import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
 import { Crowd } from './crowd.js';
 import { Director, MODES } from './camera.js';
-import { CAMERA } from './config.js';
+import { CAMERA, HAZE } from './config.js';
 import { UI } from './ui.js';
 
 const pods = [...document.querySelectorAll('.pod')];
@@ -45,7 +45,7 @@ async function boot() {
   labelRenderer.setSize(window.innerWidth, window.innerHeight);
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x0c1020, 0.00028);
+  scene.fog = new THREE.FogExp2(HAZE.fogColor, HAZE.fogDensity);
   const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, CAMERA.free.nearMin, CAMERA.free.far);
 
   scene.add(new THREE.HemisphereLight(0x4a5a8a, 0x1a1210, 0.5));
@@ -62,6 +62,7 @@ async function boot() {
   const skyline = buildSkyline(scene, city, domes);
   const water = buildWater(scene, city, renderer);
   const track = new Track(race);
+  track.cameraRef = camera;   // lantern glow cards face the camera
   const viaducts = new Viaducts(city, track, race);
   const bridges = new Bridges(track, viaducts.zones);   // sets the shade zones before the asphalt material compiles
   track.build(scene, race);

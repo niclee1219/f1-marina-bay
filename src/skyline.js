@@ -288,7 +288,7 @@ function marinaBaySands(city, M, animated) {
   const beamMat = () => new THREE.ShaderMaterial({
     uniforms: { c: { value: new THREE.Color() } },
     vertexShader: 'varying float vY; void main(){ vY = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: 'uniform vec3 c; varying float vY; void main(){ gl_FragColor = vec4(c * pow(vY, 3.0) * 0.07, 1.0); }',
+    fragmentShader: 'uniform vec3 c; varying float vY; void main(){ gl_FragColor = vec4(c * pow(max(vY, 0.0), 3.0) * 0.07, 1.0); }',
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
   });
   const cone = new THREE.ConeGeometry(9, 900, 20, 1, true).translate(0, -450, 0);
@@ -906,7 +906,7 @@ function horizonLayers(scene) {
   const glow = new THREE.Mesh(new THREE.CylinderGeometry(7000, 7000, 900, 96, 1, true).translate(0, 420, 0), new THREE.ShaderMaterial({
     uniforms: { c: { value: new THREE.Color(0.32, 0.13, 0.15) } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: 'uniform vec3 c; varying vec2 vUv; void main(){ float a = pow(1.0 - vUv.y, 2.5) * (0.6 + 0.4 * sin(vUv.x * 6.2831 + 1.2)); gl_FragColor = vec4(c * a * 0.5, 1.0); }',
+    fragmentShader: 'uniform vec3 c; varying vec2 vUv; void main(){ float a = pow(max(1.0 - vUv.y, 0.0), 2.5) * (0.6 + 0.4 * sin(vUv.x * 6.2831 + 1.2)); gl_FragColor = vec4(c * a * 0.5, 1.0); }',
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide, fog: false,
   }));
   g.add(glow);

@@ -6,11 +6,11 @@ import { CAMERA } from './config.js';
 export const MODES = ['orbit', 'tv', 'chase', 'onboard', 'heli'];
 // Opening aerial shots (scene coordinates). `narrow` is used on portrait / phone screens.
 export const OVERVIEW = {
-  // from Marina Bay East: the pit building broadside (its rooftop sign reads between the
-  // timing tower and the driver card), the Flyer, Marina Centre and the CBD skyline behind
-  wide: { pos: [1230, 390, 170], target: [400, 0, -90], fov: 42 },
-  // same view for phones: wider lens, aimed so the sign sits between the timing tower and minimap
-  narrow: { pos: [1140, 470, 187], target: [410, 0, -233], fov: 52 },
+  // the overhead TV shot: from the south-east, looking north up the pit straight; SINGAPORE reads
+  // down the pit roof (one letter per roof bay), grid and lanterns beside it, the Flyer clear to the left
+  wide: { pos: [700, 320, 240], target: [560, 0, -178], fov: 42 },
+  // same shot for phones: wider lens, panned so the word sits between the timing tower and minimap
+  narrow: { pos: [624, 380, 376], target: [484, 0, -74], fov: 55 },
 };
 
 export const MODE_LABELS = { orbit: 'Free', tv: 'Broadcast', chase: 'Chase', onboard: 'Onboard', heli: 'Helicopter' };

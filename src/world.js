@@ -457,7 +457,7 @@ export function buildWater(scene, city, renderer) {
   const shader = {
     uniforms: {
       color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null },
-      time: { value: 0 }, fogColor: { value: new THREE.Color(0x0c1020) },
+      time: { value: 0 }, fogColor: { value: new THREE.Color(COLORS.night) },
     },
     vertexShader: `
       uniform mat4 textureMatrix; varying vec4 vUv; varying vec3 vW; varying float vDepth;
@@ -492,7 +492,7 @@ export function buildWater(scene, city, renderer) {
         }
         refl /= wsum;
         vec3 V = normalize(vW - cameraPosition);
-        float fres = 0.3 + 0.7 * pow(1.0 - abs(V.y), 4.0);
+        float fres = 0.3 + 0.7 * pow(max(1.0 - abs(V.y), 0.0), 4.0);
         vec3 deep = vec3(0.006, 0.016, 0.032);
         vec3 c = deep + refl * color * fres;
         float fog = 1.0 - exp(-pow(vDepth * 0.00028, 2.0));
@@ -571,7 +571,7 @@ function makeStage(lm, animated, k) {
   const beamMat = (color) => new THREE.ShaderMaterial({
     uniforms: { c: { value: color } },
     vertexShader: 'varying float vY; void main(){ vY = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: 'uniform vec3 c; varying float vY; void main(){ gl_FragColor = vec4(c * pow(vY, 3.0) * 0.16, 1.0); }',
+    fragmentShader: 'uniform vec3 c; varying float vY; void main(){ gl_FragColor = vec4(c * pow(max(vY, 0.0), 3.0) * 0.16, 1.0); }',
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
   });
   const coneGeo = new THREE.ConeGeometry(5, 46, 24, 1, true).translate(0, -23, 0);

@@ -46,3 +46,24 @@ export async function shot(key, over = {}) {
   await sleep(900);
   return key;
 }
+
+// exact scene-space framings (x, y, z), e.g. the pit references in references/
+export const POSES = {
+  pitTV: { pos: [470, 380, 160], target: [560, 0, -200], fov: 42 },      // overhead TV shot down the pit roof (ref 7)
+  pitLane: { pos: [586, 3.2, -30], target: [566, 7, -200], fov: 55 },   // pit-lane level, garages and facade (refs 4, 6)
+  straight: { pos: [600, 70, 60], target: [586, 0, -260], fov: 42 },    // behind the grid, down the start straight (ref 5)
+};
+
+export async function pose(key) {
+  const f = window.__f1, p = POSES[key];
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
+  f.director.follow = false;
+  f.camera.position.set(...p.pos);
+  f.director.controls.target.set(...p.target);
+  f.camera.fov = p.fov;
+  f.camera.updateProjectionMatrix();
+  f.director.controls.update();
+  hud(false);
+  await sleep(900);
+  return key;
+}
