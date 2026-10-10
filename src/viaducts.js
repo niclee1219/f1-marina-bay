@@ -42,7 +42,9 @@ function frames(S) {
 }
 
 // Sweep an open cross-section polyline [[offset, dy], ...] along the samples. Each profile edge
-// gets its own strip so the box girder keeps hard edges.
+// gets its own strip so the box girder keeps hard edges. Faces point to the right of the profile
+// direction (offset to the right, dy up), so list closed sections counter-clockwise and run a
+// deck top from +offset to -offset; single-sided strips are culled from behind.
 function sweep(S, F, profile, out) {
   for (let e = 0; e + 1 < profile.length; e++) {
     const pos = [], idx = [];
@@ -194,7 +196,8 @@ export class Viaducts {
       concrete: new THREE.MeshStandardMaterial({ color: 0xa29d93, roughness: 0.88, emissive: 0x1d1912 }),
       soffit: new THREE.MeshStandardMaterial({ color: 0x5d5a55, roughness: 0.95, emissive: 0x16120c }),
       steel: new THREE.MeshStandardMaterial({ color: 0x9aa3a8, metalness: 0.7, roughness: 0.3, emissive: 0x15181b }),
-      glass: new THREE.MeshStandardMaterial({ color: 0x3c5566, metalness: 0.4, roughness: 0.15, emissive: 0x0a1418 }),
+      // balustrades are single strips, seen from the walkway and from outside
+      glass: new THREE.MeshStandardMaterial({ color: 0x3c5566, metalness: 0.4, roughness: 0.15, emissive: 0x0a1418, side: THREE.DoubleSide }),
       white: new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.6, emissive: 0x2a2824 }),
       lamp: new THREE.MeshBasicMaterial({ color: lampCol }),
       flood: new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.15, 2.0) }),
@@ -221,7 +224,7 @@ export class Viaducts {
   road(w, parts) {
     const S = samples(w, 4), F = frames(S), W = w.w, hw = W / 2, D = this.deck;
     // cross-section: road top, parapets, cantilever fascia, sloped webs, flat soffit
-    sweep(S, F, [[-hw + 0.45, 0.02], [hw - 0.45, 0.02]], parts.top);
+    sweep(S, F, [[hw - 0.45, 0.02], [-hw + 0.45, 0.02]], parts.top);
     for (const s of [-1, 1]) {
       sweep(S, F, s < 0
         ? [[-hw + 0.45, 0.02], [-hw + 0.45, 1.1], [-hw, 1.1], [-hw, -0.55]]
@@ -267,11 +270,13 @@ export class Viaducts {
   // elevated walkways: slab, glass balustrades, a light canopy on slim steel columns
   foot(w, parts) {
     const S = samples(w, 3), F = frames(S), hw = w.w / 2;
-    sweep(S, F, [[-hw, 0], [hw, 0]], parts.top);
-    sweep(S, F, [[hw, 0], [hw, -0.5], [-hw, -0.5], [-hw, 0]], parts.white);
+    sweep(S, F, [[hw, 0], [-hw, 0]], parts.top);
+    sweep(S, F, [[-hw, 0], [-hw, -0.5], [hw, -0.5], [hw, 0]], parts.white);
     sweep(S, F, [[-hw, 0], [-hw, 1.15]], parts.glass);
     sweep(S, F, [[hw, 1.15], [hw, 0]], parts.glass);
+    // canopy seen from above and below: one strip each way
     sweep(S, F, [[-hw - 0.3, 3.1], [0, 3.4], [hw + 0.3, 3.1]], parts.white);
+    sweep(S, F, [[hw + 0.3, 3.1], [0, 3.4], [-hw - 0.3, 3.1]], parts.white);
     let acc = 9;
     for (let k = 1; k < S.length; k++) {
       acc += S[k].distanceTo(S[k - 1]);
@@ -292,8 +297,8 @@ export class Viaducts {
   // The Helix: a double helix of steel tubes around the deck, lit in sequences of coloured LEDs
   helix(w, parts) {
     const S = samples({ ...w, p: w.p.map(([x, y]) => [x, y, 4.5]) }, 1.5), F = frames(S), hw = 3;
-    sweep(S, F, [[-hw, 0], [hw, 0]], parts.top);
-    sweep(S, F, [[hw, 0], [hw * 0.8, -0.8], [-hw * 0.8, -0.8], [-hw, 0]], parts.white);
+    sweep(S, F, [[hw, 0], [-hw, 0]], parts.top);
+    sweep(S, F, [[-hw, 0], [-hw * 0.8, -0.8], [hw * 0.8, -0.8], [hw, 0]], parts.white);
     const outer = [], inner = [], led = [];
     let s = 0;
     const PITCH = 13, Ro = 5.4, Ri = 4.3, yc = 2.6;
@@ -326,8 +331,8 @@ export class Viaducts {
     const P = w.p, L = P.length;
     const S = samples({ ...w, p: P.map(([x, y], k) => [x, y, 3.2 + 1.4 * Math.sin(Math.PI * k / Math.max(1, L - 1))]) }, 2);
     const F = frames(S), hw = 3.2;
-    sweep(S, F, [[-hw, 0], [hw, 0]], parts.top);
-    sweep(S, F, [[hw, 0], [hw, -0.9], [-hw, -0.9], [-hw, 0]], parts.white);
+    sweep(S, F, [[hw, 0], [-hw, 0]], parts.top);
+    sweep(S, F, [[-hw, 0], [-hw, -0.9], [hw, -0.9], [hw, 0]], parts.white);
     sweep(S, F, [[-hw, 0], [-hw, 1.1]], parts.glass);
     sweep(S, F, [[hw, 1.1], [hw, 0]], parts.glass);
     S.forEach((p, k) => {
@@ -343,8 +348,8 @@ export class Viaducts {
   // Cavenagh Bridge: white 1869 suspension bridge, chains between paired iron towers at each end
   cavenagh(w, parts) {
     const S = samples({ ...w, p: w.p.map(([x, y]) => [x, y, 2.6]) }, 1.5), F = frames(S), hw = 3.1;
-    sweep(S, F, [[-hw, 0], [hw, 0]], parts.top);
-    sweep(S, F, [[hw, 0], [hw, -0.7], [-hw, -0.7], [-hw, 0]], parts.white);
+    sweep(S, F, [[hw, 0], [-hw, 0]], parts.top);
+    sweep(S, F, [[-hw, 0], [-hw, -0.7], [hw, -0.7], [hw, 0]], parts.white);
     const n = S.length - 1, a0 = Math.round(n * 0.08), a1 = Math.round(n * 0.92), TH = 9.5;
     for (const s of [-1, 1]) {
       const off = k => S[k].clone().addScaledVector(F[k].n, s * (hw + 0.2));

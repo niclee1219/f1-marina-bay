@@ -77,9 +77,13 @@ scrub. You can replay at 1×, 2×, 5×, 10×, 30× or 60×.
 It's a static site with no build step. Three.js loads from jsDelivr through an import map.
 
 ```bash
-python3 -m http.server 8000
+python3 scripts/serve.py 8000
 # open http://localhost:8000
 ```
+
+Use this rather than `python3 -m http.server`: that server sends no `Cache-Control`, so after an
+edit the browser can mix fresh and stale modules and fail to load (for example
+`S.halo is not iterable`). If it happens anyway, hard-reload (Cmd+Shift+R).
 
 ## Sessions and rebuilding the data
 

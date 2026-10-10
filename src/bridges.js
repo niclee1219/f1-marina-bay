@@ -136,7 +136,7 @@ export class Bridges {
     parts.dark.push(strip(row(o1, -depth), row(o0, -depth)));
     parts.fascia.push(strip(row(o0, -depth), row(o0, 0.02), true), strip(row(o1, -depth), row(o1, 0.02)));
     // pavement between the track wall and the bridge edge
-    parts.road.push(strip(row(o0, -0.02), row(-WALL, -0.02), true), strip(row(WALL, -0.02), row(o1, -0.02), true));
+    parts.road.push(strip(row(o0, -0.02), row(-WALL, -0.02)), strip(row(WALL, -0.02), row(o1, -0.02)));
     // abutments at both ends, down into the water
     for (const i of [z.i0, z.i1]) {
       const { p, t } = this.frame(i);
