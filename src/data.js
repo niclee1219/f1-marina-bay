@@ -9,55 +9,10 @@ export const TYRES = {
   WET: { c: '#0090ff', l: 'W' },
 };
 
-async function fetchWithProgress(url, onProgress, type) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url}: ${res.status}`);
-  const total = +res.headers.get('content-length') || 0;
-  if (!res.body || !total) {
-    onProgress(1);
-    return type === 'json' ? res.json() : res.arrayBuffer();
-  }
-  const reader = res.body.getReader();
-  const chunks = [];
-  let got = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    got += value.length;
-    onProgress(Math.min(1, got / total));
-  }
-  const buf = new Uint8Array(got);
-  let o = 0;
-  for (const c of chunks) { buf.set(c, o); o += c.length; }
-  return type === 'json' ? JSON.parse(new TextDecoder().decode(buf)) : buf.buffer;
-}
-
-// Which session to show: #<id> in the link, then the last one picked here, then the newest.
-export function pickSession(sessions) {
-  const ids = sessions.map(s => s.id);
-  const fromHash = location.hash.slice(1);
-  if (ids.includes(fromHash)) return fromHash;
-  try {
-    const saved = sessionStorage.getItem('f1mb-session');
-    if (ids.includes(saved)) return saved;
-  } catch { /* storage unavailable */ }
-  return ids[0];
-}
-
-export async function loadAll(onProgress) {
-  const sessions = await (await fetch('data/sessions.json')).json();
-  const id = pickSession(sessions);
-  const parts = [0, 0, 0];
-  const weights = [0.15, 0.15, 0.7];
-  const report = () => onProgress(parts.reduce((a, p, i) => a + p * weights[i], 0));
-  const [race, city, bin, bridges] = await Promise.all([
-    fetchWithProgress(`data/${id}/race.json`, p => { parts[0] = p; report(); }, 'json'),
-    fetchWithProgress('data/city.json', p => { parts[1] = p; report(); }, 'json'),
-    fetchWithProgress(`data/${id}/race.bin`, p => { parts[2] = p; report(); }, 'bin'),
-    // elevated structures from OSM (East Coast Parkway viaducts, footbridges): scripts/fetch_bridges.py
-    fetch('data/bridges.json').then(r => r.json()),
-  ]);
+// The downloads (session index, race.json / race.bin, city, OSM bridges from
+// scripts/fetch_bridges.py) are started by src/boot.js before three.js has even loaded.
+export async function loadAll() {
+  const { sessions, id, race, city, bin, bridges } = await window.__boot.data;
   city.bridges = bridges.ways;
   city.bridgeDeck = bridges.deck;
   return { race: new Race(race, bin), city, sessions, id };

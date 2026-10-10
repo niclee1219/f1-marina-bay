@@ -29,20 +29,53 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 #labels { pointer-events: none; }
 
 /* ---------------------------------------------------------------- loader */
+/* The map (data/map.svg, framed by src/boot.js) paints first; the circuit draws in red as the data
+   arrives. On reveal the backdrop goes clear, the map fades over the 3D scene, which starts from the
+   same overhead framing, and the camera flies down into the opening shot. */
 #loader {
-  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
-  background: radial-gradient(1200px 600px at 50% 60%, #1a0d14 0%, #07080d 70%);
-  transition: opacity .7s ease .2s, visibility 0s linear .9s;
+  position: fixed; inset: 0; z-index: 50; background: var(--bg);
+  --ld-land: #0b0d14; --ld-water: #191a33; --ld-park: #0e1713; --ld-road: #262230; --ld-bld: #161925;
 }
-#loader.done { opacity: 0; visibility: hidden; }
-.ld-inner { display: grid; gap: 28px; justify-items: center; padding: 16px; }
-.ld-brand { font-weight: 900; font-style: italic; letter-spacing: .04em; font-size: clamp(18px, 3.4vw, 30px); display: flex; align-items: center; gap: 12px; }
+#loader.reveal { background: transparent; pointer-events: none; }
+#loader.done { visibility: hidden; }
+.ld-map { position: absolute; inset: 0; opacity: 0; transition: opacity .5s ease; }
+.ld-map.in { opacity: 1; }
+#loader.reveal .ld-map { opacity: 0; transition: opacity 1.1s ease; }
+.ld-map svg { display: block; width: 100%; height: 100%; }
+.ld-map .land { fill: var(--ld-land); }
+.ld-map .water { fill: var(--ld-water); }
+.ld-map .park { fill: var(--ld-park); }
+.ld-map .r { fill: none; stroke: var(--ld-road); stroke-linecap: round; stroke-linejoin: round; }
+.ld-map .bld { fill: var(--ld-bld); }
+.ld-map .pit { fill: none; stroke: #3b3f4c; stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.ld-map .trk-base { fill: none; stroke: #464a58; stroke-width: 5px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.ld-map .trk {
+  fill: none; stroke: var(--f1-red); stroke-width: 4px; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke;
+  stroke-dasharray: 1 1; stroke-dashoffset: 1; filter: drop-shadow(0 0 6px rgba(255, 40, 20, .85));
+}
+.ld-map .trk-head { fill: #fff; filter: drop-shadow(0 0 8px #ff3a20) drop-shadow(0 0 3px #fff); }
+.ld-map .corners text { fill: #7d8194; font: 600 22px var(--font); text-anchor: middle; dominant-baseline: middle; }
+.ld-map .labels text { fill: #a3a6b8; font: 600 24px var(--font); letter-spacing: .22em; text-anchor: middle; opacity: .8; }
+.ld-map .labels text.w { fill: #6f74a6; font-size: 34px; font-style: italic; letter-spacing: .4em; }
+.ld-inner {
+  position: absolute; left: 0; right: 0; bottom: max(5vh, 24px); display: grid; gap: 6px; justify-items: center; padding: 16px;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, .9); transition: opacity .5s ease, transform .5s ease;
+}
+#loader.reveal .ld-inner { opacity: 0; transform: translateY(10px); }
+.ld-brand { font-weight: 900; font-style: italic; letter-spacing: .04em; font-size: clamp(20px, 3.4vw, 32px); display: flex; align-items: center; gap: 12px; }
 .ld-brand em { color: var(--f1-red); font-style: italic; }
-.lights { display: flex; gap: clamp(8px, 2vw, 18px); }
-.pod { background: #0b0b0f; border: 2px solid #26262e; border-radius: 10px; padding: 8px; display: grid; gap: 8px; }
-.pod i { width: clamp(22px, 5vw, 38px); aspect-ratio: 1; border-radius: 50%; background: #2a0606; box-shadow: inset 0 -4px 8px rgba(0,0,0,.6); transition: background .15s, box-shadow .15s; }
-.pod.on i { background: #ff1a10; box-shadow: 0 0 22px 4px rgba(255, 30, 16, .7), inset 0 -4px 8px rgba(0,0,0,.3); }
-.ld-status { color: var(--muted); font-size: 14px; letter-spacing: .12em; text-transform: uppercase; min-height: 1.4em; }
+.ld-sub { color: var(--muted); font-size: clamp(11px, 1.4vw, 13px); letter-spacing: .3em; text-transform: uppercase; }
+.ld-status { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; min-height: 1.4em; margin-top: 8px; }
+.ld-status b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.2em; }
+
+/* the HUD waits for the opening fly-in, then fades up */
+body.intro :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { opacity: 0; pointer-events: none; }
+body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { animation: hud-in .8s ease both; }
+@keyframes hud-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .ld-map, #loader.reveal .ld-map, .ld-inner { transition-duration: .01s; }
+  body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { animation: none; }
+}
 
 .slash { display: inline-block; width: 14px; height: 34px; background: var(--f1-red); transform: skewX(-18deg); border-radius: 2px; flex: none; }
 

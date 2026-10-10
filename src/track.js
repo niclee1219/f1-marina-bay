@@ -458,7 +458,8 @@ export class Track {
     const steel = new THREE.MeshStandardMaterial({ color: 0x23262d, metalness: 0.7, roughness: 0.4 });
     gr.add(new THREE.Mesh(new THREE.BoxGeometry(span, 3.4, 1.4).translate(0, height, 0), steel));
     for (const sgn of [-1, 1]) gr.add(new THREE.Mesh(new THREE.BoxGeometry(0.8, height + 1.7, 0.8).translate(sgn * (span / 2 - 0.4), (height + 1.7) / 2, 0), steel));
-    const tex = canvasTex(2048, 256, draw, false);
+    // canvas in the banner's proportions, so lettering isn't squashed
+    const tex = canvasTex(Math.round(256 * (span - 2) / 3), 256, draw, false);
     const mat = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.75, roughness: 0.6 });
     for (const face of [-1, 1]) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(span - 2, 3.0), mat);
@@ -473,11 +474,22 @@ export class Track {
 
   buildStartGantries(g) {
     const at = s => Math.round((((s % this.length) + this.length) % this.length) / this.bin);
-    // red destination banner past the line (ref: SINGAPORE in white on coral red)
+    // coral destination banner past the line (references/): the circled SG mark and a rounded
+    // lowercase "singapore" wordmark in white, centred as one group
     this.bannerGantry(g, at(150), (c, w, h) => {
-      c.fillStyle = '#ee4a4f'; c.fillRect(0, 0, w, h);
-      c.fillStyle = '#ffffff'; c.font = `700 ${Math.round(h * 0.62)}px "Titillium Web", sans-serif`;
-      c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('Singapore', w / 2, h * 0.55);
+      c.fillStyle = '#ef4f4c'; c.fillRect(0, 0, w, h);
+      c.fillStyle = c.strokeStyle = '#ffffff';
+      c.textBaseline = 'middle';
+      const word = 'singapore', wordFont = `700 ${Math.round(h * 0.6)}px "Comfortaa", "Titillium Web", sans-serif`;
+      c.font = wordFont;
+      const ww = c.measureText(word).width, r = h * 0.3, gap = h * 0.22;
+      const x0 = (w - (2 * r + gap + ww)) / 2, cy = h * 0.5;
+      c.lineWidth = h * 0.045;
+      c.beginPath(); c.arc(x0 + r, cy, r, 0, Math.PI * 2); c.stroke();
+      c.font = `700 ${Math.round(r * 0.95)}px "Comfortaa", "Titillium Web", sans-serif`;
+      c.textAlign = 'center'; c.fillText('SG', x0 + r, cy + r * 0.04);
+      c.font = wordFont;
+      c.textAlign = 'left'; c.fillText(word, x0 + 2 * r + gap, cy - h * 0.04);
     }, 10);
     // Singapore Airlines over the run to the line, logo recoloured white on navy
     this.bannerGantry(g, at(-300), (c, w, h) => {

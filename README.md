@@ -51,13 +51,27 @@ built from real OpenStreetMap footprints.
   OSM via `scripts/fetch_bridges.py`). Overhead decks are real geometry, so they hide cars from every
   camera; each span is a shade zone and is lit from the deck soffit.
 - **Pit complex, crowds, cars**: a three-level pit building with garages, Paddock Club, rooftop
-  deck and backlit SINGAPORE lettering (`src/pit.js`); ~21k instanced spectators that wave and flash
+  deck and raised red-sided SINGAPORE lettering along the roof, as in the overhead TV shot (`src/pit.js`); ~21k instanced spectators that wave and flash
   phone lights as cars pass (`src/crowd.js`); detailed cars in clean team colours, numbers, brake
   glow and kerb sparks. Sponsor decals (`LIVERY_DECALS`) are only drawn for a team whose livery has
   reference images in `config.LIVERIES`, and only when the car is big enough on screen.
 - **Trackside boards** show the sponsors' logo files (`assets/logos/`, fetched from Wikimedia Commons
   by `scripts/fetch_logos.py`) on each brand's board colour; a brand without a file falls back to a
   text wordmark. Colours, liveries, landmarks, bridge zones and crowd density live in `src/config.js`.
+
+## Loading screen
+
+The page paints a night map of Marina Bay at once (`data/map.svg`, ~50 KB gzipped) and draws the
+circuit on it in red as the session downloads and the scene builds. `src/boot.js` is a plain script,
+so it starts the data downloads in parallel with three.js instead of after it. When the scene is
+ready, the 3D camera starts straight above the map at the height where the ground lines up with
+it pixel for pixel. The map fades over the identical view and the camera flies down into the
+opening shot, then the HUD fades in and the replay starts. The map is baked from `data/city.json`
+and the circuit centreline:
+
+```bash
+python3 scripts/build_loader_map.py      # -> data/map.svg
+```
 
 ## Controls
 
@@ -122,6 +136,7 @@ garage), `f0`/`f1` are x/y in dm, local metres east/north.
 
 ```
 index.html, styles.css   page shell + broadcast UI styling
+src/boot.js              loading map + early data downloads (runs before three.js loads)
 src/data.js              data loading and race-state queries (positions, gaps, tyres, timing)
 src/world.js             sky, ground, water reflections, roads, parks, buildings, landmarks
 src/track.js             track surface, kerbs, walls/fences, light towers, gantry, pit lane, stands

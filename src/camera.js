@@ -7,7 +7,7 @@ export const MODES = ['orbit', 'tv', 'chase', 'onboard', 'heli'];
 // Opening aerial shots (scene coordinates). `narrow` is used on portrait / phone screens.
 export const OVERVIEW = {
   // the overhead TV shot: from the south-east, looking north up the pit straight; SINGAPORE reads
-  // down the pit roof (one letter per roof bay), grid and lanterns beside it, the Flyer clear to the left
+  // along the pit roof (one letter per roof bay), grid and lanterns beside it, the Flyer clear to the left
   wide: { pos: [700, 320, 240], target: [560, 0, -178], fov: 42 },
   // same shot for phones: wider lens, panned so the word sits between the timing tower and minimap
   narrow: { pos: [624, 380, 376], target: [484, 0, -74], fov: 55 },
@@ -68,6 +68,54 @@ export class Director {
     this.controls.update();
   }
 
+  // Opening move. Starts straight above the loading map's framing (src/boot.js `view`: map centre
+  // and CSS pixels per metre), at the height where the ground lines up with the map pixel for pixel,
+  // north up, then flies down into the overview. It holds still until go() (the loader reveal), then
+  // waits `delay` seconds into the crossfade before moving. done() fires when it lands.
+  intro(view, dur, done) {
+    const v = this.camera.aspect < 1 ? OVERVIEW.narrow : OVERVIEW.wide;
+    const fov = THREE.MathUtils.degToRad(v.fov);
+    const height = window.innerHeight / (2 * Math.tan(fov / 2) * view.s);
+    const endT = new THREE.Vector3(...v.target);
+    const endS = new THREE.Spherical().setFromVector3(new THREE.Vector3(...v.pos).sub(endT));
+    this.introMove = {
+      t: 0, dur, done, hold: true, delay: 0.35,
+      t0: new THREE.Vector3(view.cx, 0, view.cz), t1: endT,
+      // polar ~0: looking straight down; azimuth 0 keeps north at the top of the screen
+      s0: new THREE.Spherical(height, 1e-4, 0), s1: endS,
+    };
+    this.camera.fov = v.fov;
+    this.camera.updateProjectionMatrix();
+    this.controls.enabled = false;
+    this.stepIntro(0);
+  }
+
+  go() {
+    if (this.introMove) this.introMove.hold = false;
+  }
+
+  stepIntro(dt) {
+    const m = this.introMove, cam = this.camera;
+    if (m.hold) dt = 0;
+    else if (m.delay > 0) { m.delay -= dt; dt = 0; }
+    m.t = Math.min(m.dur, m.t + dt);
+    const k = m.t / m.dur, e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;   // ease in-out
+    const tgt = this.controls.target.lerpVectors(m.t0, m.t1, e);
+    // radius eased in log space so the descent feels like a constant zoom
+    const s = new THREE.Spherical(
+      Math.exp(THREE.MathUtils.lerp(Math.log(m.s0.radius), Math.log(m.s1.radius), e)),
+      THREE.MathUtils.lerp(m.s0.phi, m.s1.phi, e),
+      THREE.MathUtils.lerp(m.s0.theta, m.s1.theta, e));
+    cam.position.setFromSpherical(s).add(tgt);
+    cam.lookAt(tgt);
+    if (m.t >= m.dur) {
+      this.introMove = null;
+      this.controls.enabled = this.mode === 'orbit';
+      this.controls.update();
+      m.done && m.done();
+    }
+  }
+
   setMode(m) {
     this.mode = m;
     this.controls.enabled = m === 'orbit';
@@ -92,14 +140,17 @@ export class Director {
   update(dt, focus, playing, simDt = dt) {
     const cam = this.camera;
     this.speedFactor = 0;
-    if (this.mode === 'orbit') {
-      if (this.follow && focus) {
-        // keep orbit centred on the focused car while still letting the user orbit
-        const delta = focus.world.clone().sub(this.controls.target);
-        this.controls.target.add(delta);
-        cam.position.add(delta);
+    if (this.introMove || this.mode === 'orbit') {
+      if (this.introMove) this.stepIntro(dt);
+      else {
+        if (this.follow && focus) {
+          // keep orbit centred on the focused car while still letting the user orbit
+          const delta = focus.world.clone().sub(this.controls.target);
+          this.controls.target.add(delta);
+          cam.position.add(delta);
+        }
+        this.controls.update();
       }
-      this.controls.update();
       // near grows with the orbit distance (depth precision for aerials) but stays below the
       // camera's height above ground, so a bridge deck close to the lens is never sliced off
       const F = CAMERA.free;

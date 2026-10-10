@@ -127,14 +127,18 @@ export const CROWD = {
   padangStand: { s: 2390, len: 130, toward: [-682, 78] },
 };
 
-// SINGAPORE lettering painted flat on the pit building roof (pit.js), one letter per roof bay,
-// read from the south end like the overhead TV shot (references/). fill: share of the roof length
-// the word spans; letter: letter height as a share of its bay; face: HDR white.
+// SINGAPORE lettering lying on the pit building roof (pit.js), one raised letter per roof bay,
+// baselines along the building so the word reads from across the track like the overhead TV shot
+// (references/). fill: share of the roof length the word spans; letter: cap height as a share of
+// the roof depth; raise: letter thickness (m) drawn as `slices` red layers; face / side: HDR colours.
 export const PIT_SIGN = {
   word: 'SINGAPORE',
   fill: 0.94,
-  letter: 0.62,
-  face: [0.82, 0.82, 0.8],   // under the bloom threshold (0.9), so the letters stay crisp
+  letter: 0.7,
+  raise: 1.2,
+  slices: 6,
+  face: [0.84, 0.83, 0.78],  // warm white, under the bloom threshold (0.9), so the letters stay crisp
+  side: [0.62, 0.05, 0.06],  // red letter sides
 };
 
 // Night lift for surfaces that otherwise render near-black: flat roofs and off-circuit roads.

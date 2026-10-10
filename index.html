@@ -4,11 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Marina Bay Night Race</title>
-  <meta name="description" content="Interactive 3D replay of the 2025 Singapore Grand Prix on the Marina Bay Street Circuit, driven by real car telemetry." />
+  <meta name="description" content="Interactive 3D replay of the Singapore Grand Prix on the Marina Bay Street Circuit, driven by real car telemetry." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Titillium+Web:ital,wght@0,400;0,600;0,700;0,900;1,900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Comfortaa:wght@700&family=Titillium+Web:ital,wght@0,400;0,600;0,700;0,900;1,900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="preload" href="data/map.svg" as="fetch" crossorigin />
+  <link rel="preload" href="data/sessions.json" as="fetch" crossorigin />
   <script type="importmap">
     {
       "imports": {
@@ -18,18 +20,18 @@
     }
   </script>
 </head>
-<body>
+<body class="intro">
   <div id="stage"></div>
   <div id="labels"></div>
 
-  <!-- loading: five red lights -->
+  <!-- loading: the Marina Bay map (src/boot.js) with the circuit drawing in as data arrives,
+       then crossfaded into the 3D scene from the same overhead framing -->
   <div id="loader">
+    <div id="ld-map" class="ld-map" aria-hidden="true"></div>
     <div class="ld-inner">
-      <div class="ld-brand"><span class="slash"></span>SINGAPORE GRAND PRIX <em>2025</em></div>
-      <div class="lights">
-        <div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div>
-      </div>
-      <div class="ld-status" id="ld-status">Loading telemetry…</div>
+      <div class="ld-brand"><span class="slash"></span><span>SINGAPORE <em>GRAND PRIX</em></span></div>
+      <div class="ld-sub">Marina Bay Street Circuit</div>
+      <div class="ld-status"><span id="ld-status">Loading telemetry</span><b id="ld-pct">0%</b></div>
     </div>
   </div>
 
@@ -130,10 +132,11 @@
       <p><kbd>Space</kbd> play / pause · <kbd>←</kbd><kbd>→</kbd> seek 10 s · <kbd>↑</kbd><kbd>↓</kbd> change driver</p>
       <p><kbd>1</kbd>–<kbd>5</kbd> camera: Free, Broadcast, Chase, Onboard, Helicopter · <kbd>F</kbd> follow focused car in Free cam</p>
       <p>Click a driver in the tower, the map or the 3D label to focus them. Drag to orbit, scroll to zoom, right-drag to pan.</p>
-      <p class="src">Positions &amp; telemetry: OpenF1 (2025 Singapore GP race, ~3.7 Hz car location). Buildings, water &amp; parks: © OpenStreetMap contributors. Corner numbering: MultiViewer circuit data. Sponsor names are drawn as plain text wordmarks; no logos are used and no endorsement is implied. Unofficial fan visualisation.</p>
+      <p class="src">Positions &amp; telemetry: OpenF1 (2025 Singapore GP race and the 2026 weekend sessions, ~3.7 Hz car location). Buildings, water &amp; parks: © OpenStreetMap contributors. Corner numbering: MultiViewer circuit data. Sponsor names are drawn as plain text wordmarks; no logos are used and no endorsement is implied. Unofficial fan visualisation.</p>
     </div>
   </div>
 
+  <script src="src/boot.js"></script>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

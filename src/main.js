@@ -19,19 +19,27 @@ import { Director, MODES } from './camera.js';
 import { CAMERA, HAZE } from './config.js';
 import { UI } from './ui.js';
 
-const pods = [...document.querySelectorAll('.pod')];
 const status = document.getElementById('ld-status');
-const setLights = n => pods.forEach((p, i) => p.classList.toggle('on', i < n));
+const loader = document.getElementById('loader');
+const BOOT = window.__boot;
+// The scene is built in stages with a frame in between, so the loading map keeps drawing the
+// circuit (boot.js) instead of freezing while the main thread is busy.
+const step = async (p, label) => {
+  BOOT.setProgress(p);
+  if (label) status.textContent = label;
+  await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+};
+const INTRO_S = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.01 : 3.2;
 
 async function boot() {
-  const { race, city, sessions, id } = await loadAll(p => setLights(Math.min(5, Math.floor(p * 5.01))));
+  const { race, city, sessions, id } = await loadAll();
   try { sessionStorage.setItem('f1mb-session', id); } catch { /* storage unavailable */ }
-  status.textContent = 'Building Marina Bay…';
+  await step(0.72, 'Building Marina Bay');
   // sponsor boards and signs are drawn to canvas in the web font, so wait for it
-  const fonts = ['900 40px "Titillium Web"', '700 40px "Titillium Web"', '600 40px "Titillium Web"', '400 40px "Titillium Web"', '700 40px "Cinzel"'];
+  const fonts = ['900 40px "Titillium Web"', '700 40px "Titillium Web"', '600 40px "Titillium Web"', '400 40px "Titillium Web"', '700 40px "Cinzel"', '700 40px "Comfortaa"'];
   try { await Promise.race([Promise.all(fonts.map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 2500))]); } catch { /* fallback font */ }
   await Promise.race([loadLogos(), new Promise(r => setTimeout(r, 4000))]);   // sponsor board logos
-  await new Promise(r => setTimeout(r, 30));
+  await step(0.75);
 
   // ---------------------------------------------------------------- renderer
   const stage = document.getElementById('stage');
@@ -59,8 +67,10 @@ async function boot() {
 
   buildSky(scene);
   const { beacons, update: updateCity, heightAt, domes } = buildCity(scene, city, hiddenBuilding);
+  await step(0.82);
   const skyline = buildSkyline(scene, city, domes);
   const water = buildWater(scene, city, renderer);
+  await step(0.86, 'Laying the circuit');
   const track = new Track(race);
   track.cameraRef = camera;   // lantern glow cards face the camera
   const viaducts = new Viaducts(city, track, race);
@@ -68,12 +78,14 @@ async function boot() {
   track.build(scene, race);
   bridges.build(scene);
   viaducts.build(scene);
+  await step(0.92, 'Rolling out the cars');
   const pit = buildPitComplex(track.group, city, race, track);
   const cars = new Cars(scene, race, track, bridges);
   const crowd = new Crowd(scene, track, race, pit.decks);
   const director = new Director(camera, renderer.domElement, track, (x, z, y) => (viaducts.blocks(x, y, z) ? Infinity : heightAt(x, z)),
     (x, z) => Math.max(heightAt(x, z), viaducts.topAt(x, z)));
   director.overview();
+  await step(0.96);
 
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
@@ -111,7 +123,7 @@ async function boot() {
   // races open on the grid just before lights out; other sessions once cars are out on track
   const fastest = race.drivers.findIndex(d => d.finish === 1);
   const state = {
-    t: race.isRace ? race.race_start - 10 : race.race_start + 90, speed: 1, playing: true,
+    t: race.isRace ? race.race_start - 10 : race.race_start + 90, speed: 1, playing: false,   // starts when the intro lands
     focusK: fastest >= 0 ? fastest : 0,
     opts: { labels: true, trails: true, realScale: false, onboard: false, jumped: true },
     prevToastT: null,
@@ -147,7 +159,7 @@ async function boot() {
   }
   setCamera('orbit');
   if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, cars, race, track, bridges, viaducts, renderer, crowd, pit, skyline, composer };
-  ui.setPlaying(true);
+  ui.setPlaying(state.playing);
   ui.setSpeed(1);
 
   window.addEventListener('keydown', e => {
@@ -250,13 +262,29 @@ async function boot() {
     requestAnimationFrame(frame);
   }
 
-  status.textContent = race.isRace ? 'Lights out' : 'Pit exit open';
-  setLights(5);
-  setTimeout(() => {
-    setLights(0);
-    document.getElementById('loader').classList.add('done');
-  }, 600);
+  // ---------------------------------------------------------------- reveal
+  // The 3D camera starts straight above the loading map's framing. Shaders compile and the first
+  // frames draw while the map still covers the canvas; then the map fades over the identical view
+  // and the camera flies down into the opening shot. The replay clock and the HUD wait for it.
+  const land = () => {
+    state.playing = true;
+    ui.setPlaying(true);
+    document.body.classList.replace('intro', 'hud-in');
+  };
+  if (BOOT.view) {
+    state.playing = false;
+    director.intro(BOOT.view, INTRO_S, land);
+  }
+  await step(0.98, 'Lights on');
+  try { await renderer.compileAsync(scene, camera); } catch { /* compiles on first render instead */ }
   requestAnimationFrame(frame);
+  await step(1);
+  await new Promise(r => setTimeout(r, 250));   // let the line finish drawing
+  BOOT.done = true;
+  loader.classList.add('reveal');
+  director.go();
+  setTimeout(() => loader.classList.add('done'), 1200);
+  if (!BOOT.view) land();
 }
 
 boot().catch(err => {

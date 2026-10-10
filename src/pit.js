@@ -2,8 +2,9 @@
 // fronting the pit lane (see references/: race-weekend photos). Garages at ground level lit in team
 // colours; above them a continuous yellow DHL parapet band, the glazed Paddock Club with its
 // balcony, a row of floodlights under the roof overhang and SINGAPORE GRAND PRIX lettering on the
-// fascia. The flat dark roof is split into bays with one huge white letter of SINGAPORE in each,
-// read from the south end like the overhead TV shot. Team pit-wall stands and the pit-exit light.
+// fascia. The flat dark roof is split into bays with one huge raised white letter of SINGAPORE in
+// each, lying along the building so the word reads from across the track like the overhead TV shot.
+// Team pit-wall stands and the pit-exit light.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { obb, toWorld } from './skyline.js';
@@ -30,25 +31,21 @@ function teamBoards(teams) {
   return t;
 }
 
-// One cell per letter: top row crisp (alpha-tested face), bottom row blurred (backlight halo).
+// One cell per letter, white on transparent. The same atlas is alpha-tested for the white face and
+// for the red side-wall slices under it.
 function letterAtlas(word) {
   const cw = 256, ch = 320, c = document.createElement('canvas');
-  c.width = cw * word.length; c.height = ch * 2;
+  c.width = cw * word.length; c.height = ch;
   const x = c.getContext('2d');
   const base = ch * 0.8;
-  x.font = `900 ${Math.round(ch * 0.8)}px "Titillium Web", sans-serif`;
+  x.font = `700 ${Math.round(ch * 0.8)}px "Titillium Web", sans-serif`;
   x.textAlign = 'center'; x.textBaseline = 'alphabetic';
   const cap = x.measureText('S').actualBoundingBoxAscent || ch * 0.57;
   const widths = [];
+  x.fillStyle = '#fff';
   [...word].forEach((L, i) => {
     widths.push(x.measureText(L).width);
-    x.fillStyle = '#fff';
-    x.filter = 'none';
     x.fillText(L, cw * (i + 0.5), base);
-    x.filter = 'blur(16px)';
-    x.strokeStyle = '#fff'; x.lineWidth = 26; x.lineJoin = 'round';
-    x.strokeText(L, cw * (i + 0.5), ch + base);
-    x.fillText(L, cw * (i + 0.5), ch + base);
   });
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -56,38 +53,47 @@ function letterAtlas(word) {
   return { tex, cw, ch, base, cap, widths };
 }
 
-// Flat roof lettering: one letter per roof bay, lying on the roof, each letter's top toward the
-// north end so SINGAPORE reads from the south. `north` is +1 / -1 for the local x axis.
-function roofLetters(len, roofW, north) {
+// Roof lettering as in the overhead photo (references/): one raised letter per roof bay, baseline
+// along the building and each letter's top toward the back (away from the pit lane, local -z), so
+// SINGAPORE reads S..E like ordinary text from the grandstands and TV cameras across the track.
+// With the top at -z, reading direction +x runs south to north, so S lands at the south end.
+// Each letter is a white face over a stack of red slices, which reads as a red-sided block.
+function roofLetters(len, roofW) {
   const S = PIT_SIGN, word = S.word, n = word.length;
   const A = letterAtlas(word);
   const span = len * S.fill, bay = span / n;
-  const capH = bay * S.letter;                              // letter height along the building
-  const k = capH / A.cap;
-  const letters = [], dividers = [];
-  for (let i = 0; i < n; i++) {
-    const xc = north * (-span / 2 + (i + 0.5) * bay);       // S at the south end
+  // cap height across the roof, shrunk if the widest letter would overrun its bay
+  const k = Math.min(roofW * S.letter / A.cap, bay * 0.86 / Math.max(...A.widths));
+  const capH = A.cap * k;
+  const plane = (i, y) => {
     const g = new THREE.PlaneGeometry(A.cw * k, A.ch * k);
     const uv = g.attributes.uv;
-    for (let q = 0; q < uv.count; q++) uv.setXY(q, (i + uv.getX(q)) / n, 0.5 + uv.getY(q) * 0.5);
-    // centre the cap height on the bay: baseline below centre by half the cap
+    for (let q = 0; q < uv.count; q++) uv.setX(q, (i + uv.getX(q)) / n);
+    // centre the cap height on the roof: baseline below centre by half the cap
     g.translate(0, (A.ch / 2 - A.base) * k + capH / 2, 0);
     g.rotateX(-Math.PI / 2);                                // lie flat, letter top toward -z
-    g.rotateY(north > 0 ? -Math.PI / 2 : Math.PI / 2);      // letter top toward the north end
-    letters.push(g.translate(xc, 0, 0));
+    return g.translate(-span / 2 + (i + 0.5) * bay, y, 0);
+  };
+  const faces = [], sides = [], dividers = [];
+  for (let i = 0; i < n; i++) {
+    faces.push(plane(i, S.raise));
+    for (let j = 0; j < S.slices; j++) sides.push(plane(i, S.raise * j / S.slices));
   }
   for (let i = 0; i <= n; i++) {
     dividers.push(new THREE.BoxGeometry(0.6, 0.5, roofW - 1.5).translate(-span / 2 + i * bay, 0.25, 0));
   }
   dividers.push(new THREE.BoxGeometry(span, 0.5, 0.6).translate(0, 0.25, roofW / 2 - 0.75));
   dividers.push(new THREE.BoxGeometry(span, 0.5, 0.6).translate(0, 0.25, -roofW / 2 + 0.75));
-  const face = new THREE.Mesh(mergeGeometries(letters), new THREE.MeshBasicMaterial({
+  const face = new THREE.Mesh(mergeGeometries(faces), new THREE.MeshBasicMaterial({
     map: A.tex, color: new THREE.Color(...S.face), alphaTest: 0.5,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
   }));
   face.name = 'pit-sign-face';
-  const div = new THREE.Mesh(mergeGeometries(dividers), new THREE.MeshStandardMaterial({ color: 0x9aa0aa, roughness: 0.6, emissive: new THREE.Color(0.28, 0.3, 0.34) }));
-  return [face, div];
+  const side = new THREE.Mesh(mergeGeometries(sides), new THREE.MeshBasicMaterial({
+    map: A.tex, color: new THREE.Color(...S.side), alphaTest: 0.5,
+  }));
+  const div = new THREE.Mesh(mergeGeometries(dividers), new THREE.MeshStandardMaterial({ color: 0x3a3e46, roughness: 0.7, emissive: new THREE.Color(0.07, 0.075, 0.085) }));
+  return [face, side, div];
 }
 
 // Continuous sponsor band: the logo repeated on its colour (falls back to the word when the file
@@ -245,10 +251,9 @@ export function buildPitComplex(g, city, race, track) {
   g.add(new THREE.Mesh(place(mergeGeometries(ag)), new THREE.MeshBasicMaterial({ vertexColors: true })));
   g.add(new THREE.Mesh(place(mergeGeometries(boards)), new THREE.MeshBasicMaterial({ map: boardTex, color: new THREE.Color(1.3, 1.3, 1.3) })));
 
-  // flat SINGAPORE lettering in the roof bays, top of each letter toward the north end
-  const north = Math.sin(a) >= 0 ? 1 : -1;
+  // SINGAPORE lettering in the roof bays, reading along the building
   const roofZ = front - DEPTH / 2 + 1, roofW = DEPTH + 4;
-  for (const m of roofLetters(len, roofW, north)) {
+  for (const m of roofLetters(len, roofW)) {
     m.geometry.translate(0, L2 + 0.82, roofZ);
     place(m.geometry);
     g.add(m);
