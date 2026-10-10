@@ -480,9 +480,9 @@ export class Track {
       c.fillStyle = '#ef4f4c'; c.fillRect(0, 0, w, h);
       c.fillStyle = c.strokeStyle = '#ffffff';
       c.textBaseline = 'middle';
-      const word = 'singapore', wordFont = `700 ${Math.round(h * 0.6)}px "Comfortaa", "Titillium Web", sans-serif`;
+      const word = 'singapore', wordFont = `700 ${Math.round(h * 0.74)}px "Comfortaa", "Titillium Web", sans-serif`;
       c.font = wordFont;
-      const ww = c.measureText(word).width, r = h * 0.3, gap = h * 0.22;
+      const ww = c.measureText(word).width, r = h * 0.36, gap = h * 0.24;
       const x0 = (w - (2 * r + gap + ww)) / 2, cy = h * 0.5;
       c.lineWidth = h * 0.045;
       c.beginPath(); c.arc(x0 + r, cy, r, 0, Math.PI * 2); c.stroke();
