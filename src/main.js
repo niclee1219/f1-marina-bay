@@ -9,6 +9,7 @@ import { loadAll } from './data.js';
 import { buildSky, buildCity, buildWater } from './world.js';
 import { buildSkyline, hiddenBuilding } from './skyline.js';
 import { Track } from './track.js';
+import { loadLogos } from './sponsors.js';
 import { Cars } from './cars.js';
 import { Bridges } from './bridges.js';
 import { Viaducts } from './viaducts.js';
@@ -28,6 +29,7 @@ async function boot() {
   // sponsor boards and signs are drawn to canvas in the web font, so wait for it
   const fonts = ['900 40px "Titillium Web"', '700 40px "Titillium Web"', '600 40px "Titillium Web"', '400 40px "Titillium Web"', '700 40px "Cinzel"'];
   try { await Promise.race([Promise.all(fonts.map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 2500))]); } catch { /* fallback font */ }
+  await Promise.race([loadLogos(), new Promise(r => setTimeout(r, 4000))]);   // sponsor board logos
   await new Promise(r => setTimeout(r, 30));
 
   // ---------------------------------------------------------------- renderer

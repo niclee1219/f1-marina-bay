@@ -11,23 +11,26 @@ export const COLORS = {
   fullertonCream: 0xd9c9a4,      // The Fullerton Hotel's granite / cream render
 };
 
-// Trackside sponsor wordmarks. Drawn procedurally as text + simple vector marks (no logo files).
-// font: 'sans' (Titillium Web), 'serif' (Cinzel), or any CSS font family string.
-// mark: optional vector mark drawn next to / behind the word (see sponsors.js).
+// Trackside sponsor boards. `logo` names assets/logos/<logo>.svg (fetched from Wikimedia Commons by
+// scripts/fetch_logos.py, sources in assets/logos/SOURCES.md); bg is the board colour. The text /
+// font / mark fields are the fallback wordmark if the logo file is missing.
+// logoTint: recolour a one-colour logo for contrast (the brand's reverse version), logoFill /
+// logoHeight: share of the board the logo may fill.
 export const SPONSORS = [
-  { name: 'Singapore Airlines', text: 'SINGAPORE AIRLINES', bg: '#0b2a5b', fg: '#f6b221', font: 'serif', weight: 700, mark: 'sia-bird', title: true },
-  { name: 'Rolex', text: 'ROLEX', bg: '#006039', fg: '#c8a24b', font: 'serif', weight: 700, mark: 'crown', tracking: 0.12 },
+  { name: 'Singapore Airlines', logo: 'singapore-airlines', text: 'SINGAPORE AIRLINES', bg: '#0b2a5b', fg: '#f6b221', font: 'serif', weight: 700, mark: 'sia-bird', title: true, logoTint: '#f6b221', logoFill: 0.9 },
+  { name: 'Rolex', logo: 'rolex', text: 'ROLEX', bg: '#006039', fg: '#c8a24b', font: 'serif', weight: 700, mark: 'crown', tracking: 0.12, logoTint: '#c8a24b', logoFill: 0.6 },
+  // Aramco: Commons only has the pre-2018 'Saudi Aramco' logo, so the board keeps the wordmark
   { name: 'Aramco', text: 'aramco', bg: '#ffffff', fg: '#00a3e0', font: 'sans', weight: 700, mark: 'aramco-star' },
-  { name: 'Heineken', text: 'Heineken', bg: '#1f6b35', fg: '#ffffff', font: 'sans', weight: 900, italic: false, mark: 'red-star' },
-  { name: 'Pirelli', text: 'PIRELLI', bg: '#ffd500', fg: '#111111', font: 'sans', weight: 900, mark: 'long-p' },
-  { name: 'Emirates', text: 'Emirates', bg: '#d71921', fg: '#ffffff', font: 'serif', weight: 700, italic: true },
-  { name: 'DHL', text: 'DHL', bg: '#ffcc00', fg: '#d40511', font: 'sans', weight: 900, italic: true, mark: 'speed-lines' },
-  { name: 'AWS', text: 'aws', bg: '#232f3e', fg: '#ffffff', font: 'sans', weight: 700, mark: 'smile' },
-  { name: 'Qatar Airways', text: 'QATAR AIRWAYS', bg: '#5c0632', fg: '#ffffff', font: 'sans', weight: 700, tracking: 0.08 },
-  { name: 'MSC', text: 'MSC', bg: '#0a1c3a', fg: '#c9a45c', font: 'serif', weight: 700, mark: 'ellipse', tracking: 0.1 },
-  { name: 'Lenovo', text: 'Lenovo', bg: '#e2231a', fg: '#ffffff', font: 'sans', weight: 600 },
-  { name: 'Salesforce', text: 'salesforce', bg: '#ffffff', fg: '#ffffff', font: 'sans', weight: 700, mark: 'cloud', cloud: '#00a1e0' },
-  { name: 'Louis Vuitton', text: 'LOUIS VUITTON', bg: '#3b2a20', fg: '#e9dcc3', font: 'sans', weight: 400, tracking: 0.22, mark: 'lv' },
+  { name: 'Heineken', logo: 'heineken', text: 'Heineken', bg: '#ffffff', fg: '#1f6b35', font: 'sans', weight: 900, italic: false, mark: 'red-star', logoFill: 0.72 },
+  { name: 'Pirelli', logo: 'pirelli', text: 'PIRELLI', bg: '#ffd500', fg: '#111111', font: 'sans', weight: 900, mark: 'long-p', logoFill: 0.78 },
+  { name: 'Emirates', logo: 'emirates', text: 'Emirates', bg: '#d71921', fg: '#ffffff', font: 'serif', weight: 700, italic: true, logoTint: '#ffffff', logoHeight: 0.8 },
+  { name: 'DHL', logo: 'dhl', text: 'DHL', bg: '#ffcc00', fg: '#d40511', font: 'sans', weight: 900, italic: true, mark: 'speed-lines', logoHeight: 0.7 },
+  { name: 'AWS', logo: 'aws', text: 'aws', bg: '#ffffff', fg: '#232f3e', font: 'sans', weight: 700, mark: 'smile', logoHeight: 0.72 },
+  { name: 'Qatar Airways', logo: 'qatar-airways', text: 'QATAR AIRWAYS', bg: '#5c0632', fg: '#ffffff', font: 'sans', weight: 700, tracking: 0.08, logoTint: '#ffffff', logoFill: 0.7 },
+  { name: 'MSC', logo: 'msc', text: 'MSC', bg: '#0a1c3a', fg: '#c9a45c', font: 'serif', weight: 700, mark: 'ellipse', tracking: 0.1, logoTint: '#c9a45c', logoHeight: 0.78 },
+  { name: 'Lenovo', logo: 'lenovo', text: 'Lenovo', bg: '#e2231a', fg: '#ffffff', font: 'sans', weight: 600, logoTint: '#ffffff', logoFill: 0.62 },
+  { name: 'Salesforce', logo: 'salesforce', text: 'salesforce', bg: '#ffffff', fg: '#ffffff', font: 'sans', weight: 700, mark: 'cloud', cloud: '#00a1e0', logoHeight: 0.82 },
+  { name: 'Louis Vuitton', logo: 'louis-vuitton', text: 'LOUIS VUITTON', bg: '#3b2a20', fg: '#e9dcc3', font: 'sans', weight: 400, tracking: 0.22, mark: 'lv', logoTint: '#e9dcc3', logoFill: 0.86 },
 ];
 
 // Team liveries (primary from the session data unless overridden; secondary / accent here). Unknown teams fall back to

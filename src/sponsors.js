@@ -1,5 +1,7 @@
-// Trackside sponsor boards: simplified wordmarks drawn to a canvas atlas from config.SPONSORS.
-// Nothing here loads a logo file; every mark is text plus a few vector strokes.
+// Trackside sponsor boards drawn to a canvas atlas from config.SPONSORS. Each board shows the
+// brand's logo file (assets/logos/<logo>.svg, see scripts/fetch_logos.py) on its usual background
+// colour, scaled to fit without stretching. A brand whose file is missing or fails to load falls
+// back to a simplified text wordmark.
 import * as THREE from 'three';
 import { SPONSORS } from './config.js';
 
@@ -106,6 +108,36 @@ const AFTER = {
   },
 };
 
+const LOGOS = new Map();   // sponsor name -> loaded Image
+
+// Preload every configured logo before the atlas is drawn. Resolves even when some fail.
+export async function loadLogos() {
+  await Promise.all(SPONSORS.filter(s => s.logo).map(s => new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => { if (img.naturalWidth) LOGOS.set(s.name, img); resolve(); };
+    img.onerror = () => { console.warn(`sponsor logo missing: ${s.logo}.svg (using wordmark)`); resolve(); };
+    img.src = `assets/logos/${s.logo}.svg`;
+  })));
+  return [...LOGOS.keys()];
+}
+
+// Logo fitted into the board's safe area, aspect ratio preserved. `logoTint` recolours a one-colour
+// logo (the brand's reverse version) for contrast on a coloured board.
+function drawLogo(c, s, img, x, y, w, h) {
+  const fw = w * (s.logoFill || 0.82), fh = h * (s.logoHeight || 0.62);
+  const ar = img.naturalWidth / img.naturalHeight;
+  const dw = Math.min(fw, fh * ar), dh = dw / ar;
+  const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+  if (!s.logoTint) { c.drawImage(img, dx, dy, dw, dh); return; }
+  const t = document.createElement('canvas');
+  t.width = Math.ceil(dw * 2); t.height = Math.ceil(dh * 2);
+  const tc = t.getContext('2d');
+  tc.drawImage(img, 0, 0, t.width, t.height);
+  tc.globalCompositeOperation = 'source-in';
+  tc.fillStyle = s.logoTint; tc.fillRect(0, 0, t.width, t.height);
+  c.drawImage(t, dx, dy, dw, dh);
+}
+
 function drawBoard(c, s, x, y, w, h) {
   c.save();
   c.beginPath(); c.rect(x, y, w, h); c.clip();
@@ -114,6 +146,13 @@ function drawBoard(c, s, x, y, w, h) {
   const g = c.createLinearGradient(0, y, 0, y + h);
   g.addColorStop(0, 'rgba(255,255,255,0.10)'); g.addColorStop(0.5, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,0.12)');
   c.fillStyle = g; c.fillRect(x, y, w, h);
+  const img = LOGOS.get(s.name);
+  if (img) {
+    drawLogo(c, s, img, x, y, w, h);
+    c.restore();
+    c.fillStyle = 'rgba(0,0,0,0.45)'; c.fillRect(x + w - 3, y, 3, h);
+    return;
+  }
   const cy = y + h / 2 + (s.mark === 'lv' ? h * 0.1 : 0);
   let lead = 0;
   if (MARKS[s.mark]) {

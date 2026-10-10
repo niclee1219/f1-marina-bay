@@ -1,0 +1,13 @@
+# Sponsor logo sources (Wikimedia Commons). Logos are trademarks of their owners.
+- `rolex.svg`: [File:Rolex wordmark logo.svg](https://commons.wikimedia.org/wiki/File:Rolex_wordmark_logo.svg), Public domain
+- `heineken.svg`: [File:Heineken logo.svg](https://commons.wikimedia.org/wiki/File:Heineken_logo.svg), Public domain
+- `pirelli.svg`: [File:Pirelli - logo full (Italy, 1997).svg](https://commons.wikimedia.org/wiki/File:Pirelli_-_logo_full_(Italy,_1997).svg), Public domain
+- `emirates.svg`: [File:Emirates logo.svg](https://commons.wikimedia.org/wiki/File:Emirates_logo.svg), Public domain
+- `dhl.svg`: [File:DHL Express logo.svg](https://commons.wikimedia.org/wiki/File:DHL_Express_logo.svg), Public domain
+- `aws.svg`: [File:AmazonWebservices Logo.svg](https://commons.wikimedia.org/wiki/File:AmazonWebservices_Logo.svg), Public domain
+- `qatar-airways.svg`: [File:Qatar Airways logo.svg](https://commons.wikimedia.org/wiki/File:Qatar_Airways_logo.svg), Public domain
+- `msc.svg`: [File:Mediterranean Shipping Company logo.svg](https://commons.wikimedia.org/wiki/File:Mediterranean_Shipping_Company_logo.svg), Public domain
+- `lenovo.svg`: [File:Lenovo logo 2015.svg](https://commons.wikimedia.org/wiki/File:Lenovo_logo_2015.svg), Public domain
+- `salesforce.svg`: [File:Salesforce.com logo.svg](https://commons.wikimedia.org/wiki/File:Salesforce.com_logo.svg), Public domain
+- `louis-vuitton.svg`: [File:Louis Vuitton logo.svg](https://commons.wikimedia.org/wiki/File:Louis_Vuitton_logo.svg), Public domain
+- `singapore-airlines.svg`: [File:Singapore Airlines Logo.svg](https://commons.wikimedia.org/wiki/File:Singapore_Airlines_Logo.svg), Public domain
