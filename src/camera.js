@@ -179,6 +179,11 @@ export class Director {
     // heading smoothed a little more for the camera than for the car body
     const target = Math.atan2(focus.dir.x, focus.dir.z);
     if (this.first || this.camYaw == null) this.camYaw = target;
+    // the car's yaw rate (rad/s of replay time), smoothed: steering and lean in the cockpit
+    if (this.first || this.prevHeading == null) { this.prevHeading = target; this.yawRate = 0; }
+    const dh = Math.atan2(Math.sin(target - this.prevHeading), Math.cos(target - this.prevHeading));
+    this.prevHeading = target;
+    if (simDt > 1e-4) this.yawRate += (THREE.MathUtils.clamp(dh / simDt, -2, 2) - this.yawRate) * (1 - Math.exp(-6 * dt));
     let dy = target - this.camYaw;
     dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     if (this.mode === 'onboard') {
@@ -202,24 +207,29 @@ export class Director {
       this.speedFactor = sp * 0.7;
       this.setNear(0.15);
     } else if (this.mode === 'onboard') {
-      // T-cam above the airbox. Height follows the car through a spring (soaks up kerb steps);
-      // vibration is low-frequency (no 60 fps aliasing) and scaled by CAMERA.onboard.shake
+      // Driver's eye in the cockpit (src/cockpit.js draws the car around it). Height follows the car
+      // through a spring (soaks up kerb steps); vibration is low-frequency (no 60 fps aliasing) and
+      // scaled by CAMERA.onboard.shake. The head leans with cornering load and nods under braking.
       const O = CAMERA.onboard;
-      if (this.first || this.camY == null) this.camY = p.y;
+      if (this.first || this.camY == null) { this.camY = p.y; this.lean = 0; this.nod = 0; }
       this.camY += (p.y - this.camY) * (1 - Math.exp(-O.smoothing * 1.5 * simDt));
-      const shake = (0.006 + sp * 0.02) * O.shake * (playing ? 1 : 0);
+      const shake = (0.004 + sp * 0.014) * O.shake * (playing ? 1 : 0);
       const t = this.time;
       const jitter = new THREE.Vector3(
         Math.sin(t * 9.3) * shake * 0.6,
         Math.sin(t * 13.7) * shake + Math.sin(t * 5.1) * shake * 0.5,
         0);
+      const latG = (speed / 3.6) * this.yawRate / 9.81;
+      const k = 1 - Math.exp(-4 * dt);
+      this.lean += (THREE.MathUtils.clamp(latG * O.lean, -0.09, 0.09) - this.lean) * k;
+      this.nod += ((focus.tel && focus.tel.brake ? O.nod : 0) - this.nod) * k;
       const base = new THREE.Vector3(p.x, this.camY, p.z);
-      wantPos = base.clone().addScaledVector(d, -0.55).add(new THREE.Vector3(0, 1.42, 0)).add(jitter);
-      wantLook = base.clone().addScaledVector(d, 30).add(new THREE.Vector3(0, 0.35, 0)).add(jitter.multiplyScalar(2));
-      fov = 64 + sp * 16;
+      wantPos = base.clone().addScaledVector(d, -0.25).add(new THREE.Vector3(0, O.eye, 0)).add(jitter);
+      wantLook = base.clone().addScaledVector(d, 30).add(new THREE.Vector3(0, O.eye - 0.35 - this.nod, 0)).add(jitter.multiplyScalar(2));
+      fov = 72 + sp * 10;
       lerp = 1;
       this.speedFactor = sp;
-      this.setNear(0.05);
+      this.setNear(0.03);
     } else if (this.mode === 'heli') {
       const side = new THREE.Vector3(d.z, 0, -d.x);
       wantPos = p.clone().addScaledVector(d, -60).addScaledVector(side, 45).add(new THREE.Vector3(0, 110, 0));
@@ -259,6 +269,7 @@ export class Director {
     }
     cam.position.copy(this.pos);
     cam.lookAt(this.look);
+    if (this.mode === 'onboard') cam.rotateZ(this.lean);
     if (Math.abs(cam.fov - this.smoothFov) > 0.01) {
       cam.fov = this.smoothFov;
       cam.updateProjectionMatrix();

@@ -16,6 +16,7 @@ import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
 import { Crowd } from './crowd.js';
 import { Director, MODES } from './camera.js';
+import { Cockpit } from './cockpit.js';
 import { CAMERA, HAZE } from './config.js';
 import { UI } from './ui.js';
 
@@ -55,6 +56,8 @@ async function boot() {
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(HAZE.fogColor, HAZE.fogDensity);
   const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, CAMERA.free.nearMin, CAMERA.free.far);
+  scene.add(camera);   // the onboard cockpit (src/cockpit.js) hangs off the camera
+  const cockpit = new Cockpit(camera);
 
   scene.add(new THREE.HemisphereLight(0x4a5a8a, 0x1a1210, 0.5));
   const moon = new THREE.DirectionalLight(0x9fb4ff, 0.55);
@@ -161,6 +164,7 @@ async function boot() {
     director.follow = false;
     state.opts.onboard = m === 'onboard';
     state.opts.realScale = m === 'onboard' || m === 'chase';
+    cockpit.root.visible = m === 'onboard';
     ui.setCamera(m);
   }
   setCamera('orbit');
@@ -225,6 +229,10 @@ async function boot() {
     state.opts.jumped = false;
     // simDt: replay time this frame, so the onboard spring keeps up with the car at 5x-60x
     director.update(dt, cars.cars[state.focusK], state.playing, state.playing ? dt * state.speed : dt);
+    if (cockpit.root.visible) {
+      cockpit.setTeam(race.drivers[state.focusK].color);
+      cockpit.update(dt, state.playing ? dt * state.speed : 0, cars.cars[state.focusK].tel, director.yawRate || 0);
+    }
 
     // start lights: one per second, out at lights-out, on the gantry and as the HUD graphic
     const ls = race.race_start - t;

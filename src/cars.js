@@ -634,6 +634,8 @@ export class Cars {
       // in practice, cars parked in the garage would pile their labels on top of each other
       const parked = !race.isRace && c.offTrack && tel.speed < 5 && k !== focusK;
       c.label.visible = opts.labels && !(opts.onboard && k === focusK) && !parked;
+      // onboard, the cockpit (src/cockpit.js) replaces the focused car's own body
+      c.car.visible = !(opts.onboard && k === focusK);
       // labels fade where they would cover the rooftop SINGAPORE sign
       c.el.classList.toggle('masked', !!(opts.labelMask && c.label.visible && opts.labelMask(c.root.position)));
       c.el.classList.toggle('focus', k === focusK);
