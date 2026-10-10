@@ -73,7 +73,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   position: fixed; left: 50%; bottom: 150px; z-index: 30; transform: translateX(-50%);
   display: flex; align-items: center; gap: 14px; padding: 14px 26px 14px 18px; border-radius: 8px;
   background: linear-gradient(180deg, #ff1e12, #c40500); color: #fff; border: 1px solid rgba(255,255,255,.18);
-  font-weight: 900; font-style: italic; font-size: 20px; letter-spacing: .08em; text-transform: uppercase;
+  font-weight: 900; font-style: italic; font-size: 20px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
   box-shadow: 0 10px 40px rgba(225, 6, 0, .45), inset 0 1px 0 rgba(255,255,255,.25);
   animation: sb-in .6s cubic-bezier(.2, .9, .3, 1.2) both;
   transition: transform .15s ease, box-shadow .15s ease;
@@ -100,7 +100,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pod.lit i { background: #ff1a10; box-shadow: 0 0 22px 4px rgba(255, 30, 16, .7), inset 0 -4px 8px rgba(0,0,0,.3); }
 .sl-msg { font-weight: 900; font-style: italic; font-size: clamp(18px, 3vw, 30px); letter-spacing: .1em; text-transform: uppercase; text-shadow: 0 2px 16px rgba(0,0,0,.9); opacity: 0; transform: scale(.9); transition: opacity .2s, transform .3s; }
 .start-lights.out .sl-msg { opacity: 1; transform: none; }
-@media (max-width: 700px) { .start-btn { bottom: 190px; font-size: 16px; } .start-lights { top: 150px; } }
+@media (max-width: 700px) { .start-btn { bottom: 190px; font-size: 15px; padding: 11px 18px 11px 12px; gap: 10px; } .start-lights { top: 150px; } }
 
 /* the HUD waits for the opening fly-in, then fades up */
 body.intro :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { opacity: 0; pointer-events: none; }
