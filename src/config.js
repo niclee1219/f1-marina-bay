@@ -35,6 +35,13 @@ export const SPONSORS = [
 
 // Team liveries (primary from the session data unless overridden; secondary / accent here). Unknown teams fall back to
 // a darkened primary with white accents.
+//
+// Sponsor decals: a team gets logo decals only when `reference` lists livery reference images it
+// was checked against AND `decals` maps slots to logo files (assets/logos/<file>.svg), e.g.
+//   'Example Team': { ..., reference: ['reference/liveries/example-2026-side.jpg'],
+//                     decals: { sidepod: 'aws', engineCover: 'rolex', rearWingEndplate: 'dhl', frontWingEndplate: 'pirelli' } }
+// No reference livery images have been supplied yet, so every team runs in clean team colours
+// (a clean car is better than a wrong one).
 export const LIVERIES = {
   'Red Bull Racing': { secondary: '#1b2a4a', accent: '#e8002d' },
   'Ferrari': { secondary: '#ed1131', accent: '#ffffff' },
@@ -48,6 +55,18 @@ export const LIVERIES = {
   'Audi': { secondary: '#1a1a1a', accent: '#f50537' },
   'Haas F1 Team': { primary: '#f2f2f2', secondary: '#16171a', accent: '#e8002d' },
   'Cadillac': { secondary: '#111111', accent: '#ffffff' },
+};
+
+// Where decals sit on the car (car-local metres: +z forward, +x left, +y up; both sides mirrored)
+// and how big the car must be on screen before they are drawn.
+export const LIVERY_DECALS = {
+  minPixels: 110,   // projected car length in pixels; below this, decals are hidden (unreadable)
+  slots: {
+    sidepod: { x: 0.83, y: 0.47, z: 0.1, w: 0.52, h: 0.17 },
+    engineCover: { x: 0.215, y: 0.6, z: -1.3, w: 0.42, h: 0.12 },
+    rearWingEndplate: { x: 0.53, y: 0.8, z: -2.42, w: 0.5, h: 0.18 },
+    frontWingEndplate: { x: 0.975, y: 0.19, z: 2.55, w: 0.5, h: 0.15 },
+  },
 };
 
 // Hand-built landmarks. `replaces` lists OSM building names whose plain extrusions are hidden

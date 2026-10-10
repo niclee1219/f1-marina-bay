@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { TYRES } from './data.js';
-import { LIVERIES } from './config.js';
+import { LIVERIES, LIVERY_DECALS } from './config.js';
 
 const TRAIL_N = 28;
 const TRAIL_DT = 0.07;
@@ -305,6 +305,42 @@ class Sparks {
   }
 }
 
+// ---------------------------------------------------------------- sponsor decals
+const decalTextures = new Map();
+function decalTexture(file) {
+  if (!decalTextures.has(file)) {
+    const t = new THREE.TextureLoader().load(`assets/logos/${file}.svg`);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    decalTextures.set(file, t);
+  }
+  return decalTextures.get(file);
+}
+
+// Logo planes on both sides of each configured slot, parented to the car body (so they scale with
+// it). Only for teams with a livery reference and decal map in config.LIVERIES.
+export function buildDecals(car, decals, shade) {
+  const g = new THREE.Group();
+  g.name = 'decals';
+  for (const [slot, file] of Object.entries(decals || {})) {
+    const p = LIVERY_DECALS.slots[slot];
+    if (!p || !file) continue;
+    const mat = shaded(new THREE.MeshStandardMaterial({
+      map: decalTexture(file), transparent: true, alphaTest: 0.05, roughness: 0.4,
+      polygonOffset: true, polygonOffsetFactor: -2, side: THREE.FrontSide,
+    }), shade);
+    for (const sx of [-1, 1]) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.h), mat);
+      m.rotation.y = sx * Math.PI / 2;
+      m.position.set(sx * p.x, p.y, p.z);
+      g.add(m);
+    }
+  }
+  g.visible = false;
+  car.add(g);
+  return g;
+}
+
 // ---------------------------------------------------------------- cars
 export class Cars {
   constructor(scene, race, track, bridges = null) {
@@ -461,6 +497,8 @@ export class Cars {
       // small parts that vanish below a pixel or two from the aerial cameras (cheap LOD)
       const details = [helmet, visor, tcam, numMesh, tail, ...spins.flatMap(sp => sp.children.slice(1))];
       return {
+        // sponsor decals only for liveries checked against reference images (config.LIVERIES)
+        decals: L.reference && L.decals ? buildDecals(car, L.decals, shade) : null,
         d, root, car, wheels, spins, steers, bandMat, brakeMat, flapPivot, tailMat, tailGlow, glow, trail, label, el, details, detailed: true,
         elPos: el.querySelector('.pos'), shade,
         heading: null, xy: [0, 0, 0, 0], world: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, 1), y: 0, spin: 0,
@@ -514,6 +552,8 @@ export class Cars {
       c.car.scale.setScalar(s);
       c.label.position.y = 1.6 * s + 1.4;
       const detailed = dist < 450;
+      // decals only once the car is big enough on screen to read them
+      if (c.decals) c.decals.visible = 5.6 * s / Math.max(dist, 0.1) * (opts.pixelScale || 800) >= LIVERY_DECALS.minPixels;
       if (detailed !== c.detailed) { c.detailed = detailed; for (const m of c.details) m.visible = detailed; }
 
       const tel = race.tel(k, t);

@@ -198,6 +198,8 @@ async function boot() {
     }
     const t = state.t;
     updateSignRect();
+    // pixels per radian at the screen centre, for size-on-screen decisions (car decals)
+    state.opts.pixelScale = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     cars.update(t, state.playing ? dt * state.speed : 0, camera.position, state.focusK, state.opts);
     state.opts.jumped = false;
     director.update(dt, cars.cars[state.focusK], state.playing);
