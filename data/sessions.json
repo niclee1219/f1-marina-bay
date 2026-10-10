@@ -1,5 +1,21 @@
 [
  {
+  "id": "2026-quali",
+  "label": "2026 Quali",
+  "name": "Qualifying",
+  "year": 2026,
+  "date": "2026-10-10T13:30:00+00:00",
+  "is_race": false
+ },
+ {
+  "id": "2026-sprint",
+  "label": "2026 Sprint",
+  "name": "Sprint",
+  "year": 2026,
+  "date": "2026-10-10T09:00:00+00:00",
+  "is_race": true
+ },
+ {
   "id": "2026-sq",
   "label": "2026 Sprint Quali",
   "name": "Sprint Qualifying",
