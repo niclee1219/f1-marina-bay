@@ -120,20 +120,26 @@ async function boot() {
   composer.addPass(new OutputPass());
 
   // ---------------------------------------------------------------- state
-  // races open on the grid just before lights out; other sessions once cars are out on track
+  // Races wait on the grid, 7 s before lights out, for the Start button; other sessions once cars
+  // are out on track. Nothing plays until the viewer starts it (button, play or Space).
   const fastest = race.drivers.findIndex(d => d.finish === 1);
   const state = {
-    t: race.isRace ? race.race_start - 10 : race.race_start + 90, speed: 1, playing: false,   // starts when the intro lands
+    t: race.isRace ? race.race_start - 7 : race.race_start + 90, speed: 1, playing: false, started: false,
     focusK: fastest >= 0 ? fastest : 0,
     opts: { labels: true, trails: true, realScale: false, onboard: false, jumped: true },
     prevToastT: null,
+  };
+  const togglePlay = () => {
+    if (!state.started) return begin();
+    state.playing = !state.playing;
+    ui.setPlaying(state.playing);
   };
 
   const ui = new UI(race, track, sessions, id, {
     select: k => { state.focusK = k; if (director.mode === 'orbit') director.follow = true; },
     seek: t => { state.t = t; state.opts.jumped = true; state.prevToastT = null; },
     skip: s => { state.t = Math.max(0, Math.min(race.duration, state.t + s)); state.opts.jumped = true; state.prevToastT = null; },
-    togglePlay: () => { state.playing = !state.playing; ui.setPlaying(state.playing); },
+    togglePlay,
     speed: s => { state.speed = s; ui.setSpeed(s); },
     camera: m => setCamera(m),
     toggle: (id, on) => {
@@ -164,7 +170,7 @@ async function boot() {
 
   window.addEventListener('keydown', e => {
     if (e.target.closest('input, textarea')) return;
-    if (e.code === 'Space') { e.preventDefault(); state.playing = !state.playing; ui.setPlaying(state.playing); }
+    if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.key === 'ArrowLeft') { state.t = Math.max(0, state.t - 10); state.opts.jumped = true; state.prevToastT = null; }
     else if (e.key === 'ArrowRight') { state.t = Math.min(race.duration, state.t + 10); state.opts.jumped = true; state.prevToastT = null; }
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -220,9 +226,11 @@ async function boot() {
     // simDt: replay time this frame, so the onboard spring keeps up with the car at 5x-60x
     director.update(dt, cars.cars[state.focusK], state.playing, state.playing ? dt * state.speed : dt);
 
-    // start lights: one per second, out at lights-out
+    // start lights: one per second, out at lights-out, on the gantry and as the HUD graphic
     const ls = race.race_start - t;
-    track.setStartLights(race.isRace && ls > 0 && ls < 6 ? Math.min(5, Math.floor(6 - ls)) : 0);
+    const lit = race.isRace && ls > 0 && ls < 6 ? Math.min(5, Math.floor(6 - ls)) : 0;
+    track.setStartLights(lit);
+    showStartLights(state.started && race.isRace && ls < 6.5 && ls > -2.6, lit, ls <= 0);
 
     water.material.uniforms.time.value += dt;
     updateCity(dt);
@@ -262,19 +270,52 @@ async function boot() {
     requestAnimationFrame(frame);
   }
 
+  // ---------------------------------------------------------------- start
+  // Start: races fly to the TV start shot (past the gantry, looking back down the grid at the cars)
+  // and roll from 7 s before lights out, so the five lights come on one per second and go out at
+  // the recorded start.
+  function begin() {
+    if (state.started) return;
+    state.started = true;
+    startBtn.hidden = true;
+    if (race.isRace) {
+      state.t = race.race_start - 7;
+      state.opts.jumped = true;
+      setCamera('orbit');
+      // framed from the grid itself: pole car toward mid-grid is "down the grid"
+      const order = race.order(state.t);
+      const pole = cars.cars[order[0].k].world, back = cars.cars[order[Math.min(9, order.length - 1)].k].world;   // P10: the back row may start from the pit lane
+      const g = back.clone().sub(pole).setY(0).normalize();
+      director.flyTo([pole.x - g.x * 40, pole.y + 16, pole.z - g.z * 40], [pole.x + g.x * 70, pole.y, pole.z + g.z * 70], 1.8);
+    }
+    state.playing = true;
+    ui.setPlaying(true);
+  }
+
+  // HUD start-light graphic, mirrored from the gantry lamps; "lights out" flashes after the start
+  const lightsEl = document.getElementById('start-lights'), pods = [...lightsEl.querySelectorAll('.pod')];
+  let lightsKey = '';
+  function showStartLights(show, n, out) {
+    const key = `${show}|${n}|${out}`;
+    if (key === lightsKey) return;
+    lightsKey = key;
+    lightsEl.classList.toggle('on', show);
+    lightsEl.classList.toggle('out', out);
+    pods.forEach((p, i) => p.classList.toggle('lit', i < n));
+  }
+
   // ---------------------------------------------------------------- reveal
   // The 3D camera starts straight above the loading map's framing. Shaders compile and the first
   // frames draw while the map still covers the canvas; then the map fades over the identical view
-  // and the camera flies down into the opening shot. The replay clock and the HUD wait for it.
+  // and the camera flies down into the opening shot. Then the HUD fades in with the Start button.
+  const startBtn = document.getElementById('start-btn');
+  startBtn.querySelector('.sb-label').textContent = race.isRace ? 'Start race' : 'Start session';
+  startBtn.addEventListener('click', () => begin());
   const land = () => {
-    state.playing = true;
-    ui.setPlaying(true);
     document.body.classList.replace('intro', 'hud-in');
+    if (!state.started) startBtn.hidden = false;
   };
-  if (BOOT.view) {
-    state.playing = false;
-    director.intro(BOOT.view, INTRO_S, land);
-  }
+  if (BOOT.view) director.intro(BOOT.view, INTRO_S, land);
   await step(0.98, 'Lights on');
   try { await renderer.compileAsync(scene, camera); } catch { /* compiles on first render instead */ }
   requestAnimationFrame(frame);

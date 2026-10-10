@@ -94,6 +94,17 @@ export class Director {
     if (this.introMove) this.introMove.hold = false;
   }
 
+  // Free-camera move from wherever the camera is to (pos, target), same easing as the intro.
+  flyTo(pos, target, dur, done) {
+    const t0 = this.controls.target.clone(), t1 = new THREE.Vector3(...target);
+    const s0 = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(t0));
+    const s1 = new THREE.Spherical().setFromVector3(new THREE.Vector3(...pos).sub(t1));
+    // turn the short way round
+    s1.theta = s0.theta + Math.atan2(Math.sin(s1.theta - s0.theta), Math.cos(s1.theta - s0.theta));
+    this.introMove = { t: 0, dur, done, hold: false, delay: 0, t0, t1, s0, s1 };
+    this.controls.enabled = false;
+  }
+
   stepIntro(dt) {
     const m = this.introMove, cam = this.camera;
     if (m.hold) dt = 0;

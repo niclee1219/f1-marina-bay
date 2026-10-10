@@ -323,10 +323,12 @@ export class UI {
       const q = race.qualiPhase(t);
       if (q) {
         // knockout qualifying: phase clock (stops during red flags), countdown to the next phase
+        // phase as a red chip, then what the clock means: [SQ1] TIME LEFT 9:54
+        const words = { before: 'STARTS IN', done: '' }[q.state] ?? 'TIME LEFT';
+        const html = `<span class="ph">${q.phase.name}</span>${words}`;
         const lbl = $('.lapbox .lbl');
-        if (q.state === 'before') { lbl.textContent = `${q.phase.name} STARTS IN`; $('#lap-now').textContent = fmtClock(q.left); }
-        else if (q.state === 'done') { lbl.textContent = q.phase.name; $('#lap-now').textContent = 'FINISHED'; }
-        else { lbl.textContent = `${q.phase.name} TIME LEFT`; $('#lap-now').textContent = fmtClock(q.left); }
+        if (lbl.innerHTML !== html) lbl.innerHTML = html;
+        $('#lap-now').textContent = q.state === 'done' ? 'FINISHED' : fmtClock(q.left);
       } else {
         $('#lap-now').textContent = fmtClock(Math.max(0, race.raceEnd - Math.max(t, race.race_start)));
       }

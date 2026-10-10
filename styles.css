@@ -68,6 +68,40 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .ld-status { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; min-height: 1.4em; margin-top: 8px; }
 .ld-status b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.2em; }
 
+/* ---------------------------------------------------------------- start */
+.start-btn {
+  position: fixed; left: 50%; bottom: 150px; z-index: 30; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 14px; padding: 14px 26px 14px 18px; border-radius: 8px;
+  background: linear-gradient(180deg, #ff1e12, #c40500); color: #fff; border: 1px solid rgba(255,255,255,.18);
+  font-weight: 900; font-style: italic; font-size: 20px; letter-spacing: .08em; text-transform: uppercase;
+  box-shadow: 0 10px 40px rgba(225, 6, 0, .45), inset 0 1px 0 rgba(255,255,255,.25);
+  animation: sb-in .6s cubic-bezier(.2, .9, .3, 1.2) both;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.start-btn:hover { transform: translateX(-50%) translateY(-2px); box-shadow: 0 14px 48px rgba(225, 6, 0, .6), inset 0 1px 0 rgba(255,255,255,.25); }
+.start-btn:active { transform: translateX(-50%) translateY(1px); }
+.start-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.sb-dots { display: flex; gap: 5px; padding: 6px 8px; background: #111; border-radius: 5px; }
+.sb-dots i { width: 9px; height: 9px; border-radius: 50%; background: #3a0606; animation: sb-dot 2.4s infinite; }
+.sb-dots i:nth-child(2) { animation-delay: .2s; } .sb-dots i:nth-child(3) { animation-delay: .4s; }
+.sb-dots i:nth-child(4) { animation-delay: .6s; } .sb-dots i:nth-child(5) { animation-delay: .8s; }
+@keyframes sb-dot { 0%, 10% { background: #3a0606; box-shadow: none; } 20%, 70% { background: #ff2a1a; box-shadow: 0 0 8px #ff2a1a; } 80%, 100% { background: #3a0606; box-shadow: none; } }
+@keyframes sb-in { from { opacity: 0; transform: translateX(-50%) translateY(16px) scale(.96); } }
+
+.start-lights {
+  position: fixed; left: 50%; top: 92px; z-index: 30; transform: translateX(-50%) translateY(-8px);
+  display: grid; justify-items: center; gap: 12px; pointer-events: none; opacity: 0;
+  transition: opacity .25s ease, transform .25s ease;
+}
+.start-lights.on { opacity: 1; transform: translateX(-50%); }
+.sl-row { display: flex; gap: clamp(6px, 1.4vw, 14px); padding: 10px; background: rgba(8, 8, 12, .82); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); }
+.pod { background: #0b0b0f; border: 2px solid #26262e; border-radius: 9px; padding: 6px; display: grid; gap: 6px; }
+.pod i { width: clamp(18px, 3.4vw, 32px); aspect-ratio: 1; border-radius: 50%; background: #2a0606; box-shadow: inset 0 -4px 8px rgba(0,0,0,.6); transition: background .08s, box-shadow .08s; }
+.pod.lit i { background: #ff1a10; box-shadow: 0 0 22px 4px rgba(255, 30, 16, .7), inset 0 -4px 8px rgba(0,0,0,.3); }
+.sl-msg { font-weight: 900; font-style: italic; font-size: clamp(18px, 3vw, 30px); letter-spacing: .1em; text-transform: uppercase; text-shadow: 0 2px 16px rgba(0,0,0,.9); opacity: 0; transform: scale(.9); transition: opacity .2s, transform .3s; }
+.start-lights.out .sl-msg { opacity: 1; transform: none; }
+@media (max-width: 700px) { .start-btn { bottom: 190px; font-size: 16px; } .start-lights { top: 150px; } }
+
 /* the HUD waits for the opening fly-in, then fades up */
 body.intro :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { opacity: 0; pointer-events: none; }
 body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { animation: hud-in .8s ease both; }
@@ -97,10 +131,12 @@ body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minima
 }
 .ev-gp { font-size: 12px; letter-spacing: .16em; color: #ff3b30; text-shadow: 0 0 8px rgba(255, 30, 20, .5); }
 .ev-sub { color: #b9b9c6; font-size: 11.5px; letter-spacing: .04em; margin-top: 3px; white-space: nowrap; }
-.lapbox { display: flex; align-items: baseline; gap: 6px; background: var(--panel); padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); backdrop-filter: blur(8px); }
-.lapbox .lbl { color: var(--muted); font-weight: 700; font-size: 12px; letter-spacing: .14em; align-self: center; }
-.lapbox .now { font-weight: 900; font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
-.lapbox .of, .lapbox .tot { color: var(--muted); font-weight: 700; font-size: 16px; }
+/* compact pill, centred in the header row rather than stretched to the brand plate's height */
+.lapbox { align-self: center; display: flex; align-items: center; gap: 8px; background: var(--panel); padding: 5px 12px 5px 6px; border-radius: 6px; border: 1px solid var(--line); backdrop-filter: blur(8px); line-height: 1; }
+.lapbox .lbl { color: var(--muted); font-weight: 700; font-size: 11px; letter-spacing: .14em; display: flex; align-items: center; gap: 7px; padding-left: 6px; }
+.lapbox .lbl .ph { background: var(--f1-red); color: #fff; font-weight: 900; font-style: italic; letter-spacing: .04em; font-size: 12px; padding: 4px 7px; border-radius: 3px; margin-left: -6px; }
+.lapbox .now { font-weight: 900; font-size: 20px; font-variant-numeric: tabular-nums; min-width: 2.6ch; }
+.lapbox .of, .lapbox .tot { color: var(--muted); font-weight: 700; font-size: 14px; }
 .flag { align-self: center; font-weight: 900; letter-spacing: .12em; font-size: 12px; padding: 7px 12px; border-radius: 4px; background: #14532d; color: #dcfce7; border: 1px solid rgba(34,197,94,.5); }
 .flag[data-flag="YELLOW"] { background: var(--yellow); color: #111; border-color: transparent; animation: pulse 1s infinite alternate; }
 .flag[data-flag="SC"], .flag[data-flag="VSC"] { background: #f59e0b; color: #111; }
@@ -316,10 +352,10 @@ kbd { font: 700 11px var(--font); background: #2a2a33; padding: 1px 6px; border-
   .ev-word { font-size: 21px; letter-spacing: .05em; }
   .ev-gp { font-size: 9.5px; letter-spacing: .22em; }
   .ev-sub { display: none; }
-  .lapbox { padding: 6px 10px; }
+  .lapbox { padding: 4px 9px 4px 5px; }
   .sessions { order: 5; width: 100%; overflow-x: auto; }
   .sessions button { flex: 1; white-space: nowrap; }
-  .lapbox .now { font-size: 20px; }
+  .lapbox .now { font-size: 17px; }
   .flag { font-size: 10px; padding: 5px 8px; }
   #tower { top: 104px; left: 8px; width: 168px; }
   .row { grid-template-columns: 20px 3px 1fr 52px 18px; font-size: 11.5px; gap: 0 5px; }

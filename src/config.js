@@ -162,3 +162,7 @@ export const CAMERA = {
 
 // Title wordmark shown in the HUD.
 export const TITLE = { word: 'SINGAPORE', sub: 'GRAND PRIX' };
+
+// Car size in the free / broadcast / helicopter cameras: real size within `dist` metres of the
+// camera, then grown with distance (so a far car still shows) up to `max` times real size.
+export const CAR_ZOOM = { dist: 300, max: 3 };

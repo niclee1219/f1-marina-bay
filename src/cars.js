@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { TYRES } from './data.js';
-import { LIVERIES, LIVERY_DECALS } from './config.js';
+import { LIVERIES, LIVERY_DECALS, CAR_ZOOM } from './config.js';
 
 const TRAIL_N = 28;
 const TRAIL_DT = 0.07;
@@ -559,9 +559,9 @@ export class Cars {
       c.dir.set(Math.sin(c.heading), 0, Math.cos(c.heading));
       c.s = c.ti * this.track.bin;
 
-      // adaptive scale: real size up close, exaggerated from the helicopter
+      // adaptive scale: real size up close, gently exaggerated from far away so cars stay visible
       const dist = cameraPos.distanceTo(c.root.position);
-      const s = opts.realScale ? 1 : THREE.MathUtils.clamp(dist / 140, 1, 9);
+      const s = opts.realScale ? 1 : THREE.MathUtils.clamp(dist / CAR_ZOOM.dist, 1, CAR_ZOOM.max);
       c.car.scale.setScalar(s);
       c.label.position.y = 1.6 * s + 1.4;
       const detailed = dist < 450;
