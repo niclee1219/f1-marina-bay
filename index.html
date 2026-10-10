@@ -86,15 +86,22 @@
         </div>
         <div id="c-pos" class="cpos"></div>
       </div>
-      <div class="gauge">
-        <svg viewBox="0 0 120 70" class="arc"><path d="M12 64 A50 50 0 0 1 108 64" class="arc-bg"/><path id="c-arc" d="M12 64 A50 50 0 0 1 108 64" class="arc-fg"/></svg>
-        <div class="spd"><span id="c-speed">0</span><small>KM/H</small></div>
-        <div class="gear"><small>GEAR</small><span id="c-gear">N</span></div>
-        <div id="c-drs" class="drs">DRS</div>
-      </div>
-      <div class="pedals">
-        <div class="ped"><small>THR</small><div class="bar"><i id="c-thr" class="thr"></i></div></div>
-        <div class="ped"><small>BRK</small><div class="bar"><i id="c-brk" class="brk"></i></div></div>
+      <!-- steering-wheel dash: rev lights over the screen, carbon grips, rotaries -->
+      <div class="wheel">
+        <div id="c-revs" class="revs"></div>
+        <div class="screen">
+          <div class="pbar"><i id="c-thr" class="thr"></i><small>THR</small></div>
+          <div class="mid">
+            <div class="gear"><span id="c-gear">N</span></div>
+            <div class="spd"><span id="c-speed">0</span><small>KM/H</small></div>
+          </div>
+          <div class="side">
+            <div id="c-drs" class="drs">DRS</div>
+            <div class="rpm"><span id="c-rpm">0</span><small>RPM</small></div>
+          </div>
+          <div class="pbar"><i id="c-brk" class="brk"></i><small>BRK</small></div>
+        </div>
+        <div class="knobs" aria-hidden="true"><i></i><i></i><i></i><b></b><b></b><i></i><i></i><i></i></div>
       </div>
       <div class="kv"><span>Lap</span><b id="c-lap"></b></div>
       <div class="kv"><span>Tyre</span><b id="c-tyre" class="tyreline"></b></div>

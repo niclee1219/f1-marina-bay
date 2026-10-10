@@ -4,6 +4,9 @@ import { MODES, MODE_LABELS } from './camera.js';
 import { TITLE } from './config.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+// rough top speed (km/h) at the rev limit in each gear, for the wheel's estimated RPM
+const GEAR_TOP = [0, 100, 140, 175, 210, 245, 280, 310, 345];
 
 export function fmtClock(s) {
   const sign = s < 0 ? '-' : '';
@@ -178,14 +181,7 @@ export class UI {
       $('#card-last').textContent = d.last.toUpperCase();
       $('#card-team').textContent = d.team;
     }
-    const tel = race.tel(k, t);
-    $('#c-speed').textContent = tel.speed;
-    $('#c-gear').textContent = tel.gear === 0 ? 'N' : tel.gear;
-    $('#c-thr').style.transform = `scaleX(${tel.throttle / 100})`;
-    $('#c-brk').style.transform = `scaleX(${tel.brake ? 1 : 0})`;
-    $('#c-drs').classList.toggle('on', !!tel.drs);
-    const rpmPct = Math.min(1, tel.speed / 340);
-    $('#c-arc').style.strokeDashoffset = String(251 * (1 - rpmPct));
+    this.updateWheel(race.tel(k, t), k);
     const pos = race.order(t).findIndex(x => x.k === k) + 1;
     $('#c-pos').textContent = `P${pos}`;
     const lap = race.lap(k, t);
@@ -203,6 +199,40 @@ export class UI {
       const el = $(`#c-s${j + 1}`);
       el.textContent = last && last.s[j] ? last.s[j].toFixed(3) : '—';
       el.className = `sec ${last ? last.colours[j] : ''}`;
+    }
+  }
+
+  // Steering-wheel dash. Telemetry is ~4 Hz, so speed, revs and pedals are eased every frame
+  // (snapping on a driver change or a big jump). There is no RPM channel: revs are estimated from
+  // speed against each gear's top speed, which gives the familiar climb and drop on upshifts.
+  updateWheel(tel, k) {
+    const now = performance.now(), w = this.wheel || (this.wheel = { t: now, speed: 0, rpm: 0, thr: 0, brk: 0, k: -1 });
+    if (!this.revEls) {
+      const cls = i => (i < 5 ? 'g' : i < 10 ? 'r' : 'b');
+      $('#c-revs').innerHTML = Array.from({ length: 15 }, (_, i) => `<i class="${cls(i)}"></i>`).join('');
+      this.revEls = [...$('#c-revs').children];
+    }
+    const top = GEAR_TOP[Math.min(tel.gear, 8)] || 340;
+    const rpmT = tel.gear === 0 ? 4000 + tel.throttle * 60 : clamp(5200 + (tel.speed / top) * 7000, 4000, 12400);
+    const snap = w.k !== k || Math.abs(tel.speed - w.speed) > 80;
+    const a = snap ? 1 : 1 - Math.exp(-Math.min(0.1, (now - w.t) / 1000) * 10);
+    w.t = now; w.k = k;
+    w.speed += (tel.speed - w.speed) * a;
+    w.rpm += (rpmT - w.rpm) * Math.min(1, a * 1.6);
+    w.thr += (tel.throttle / 100 - w.thr) * Math.min(1, a * 1.6);
+    w.brk += ((tel.brake ? 1 : 0) - w.brk) * Math.min(1, a * 2);
+    $('#c-speed').textContent = Math.round(w.speed);
+    $('#c-gear').textContent = tel.gear === 0 ? 'N' : tel.gear;
+    $('#c-rpm').textContent = Math.round(w.rpm / 10) * 10;
+    $('#c-thr').style.transform = `scaleY(${w.thr.toFixed(3)})`;
+    $('#c-brk').style.transform = `scaleY(${w.brk.toFixed(3)})`;
+    $('#c-drs').classList.toggle('on', !!tel.drs);
+    // rev lights from 9,000 rpm, all fifteen by 12,000; flashing at the shift point
+    const lit = Math.round(clamp((w.rpm - 9000) / 3000, 0, 1) * 15);
+    if (lit !== this.revLit) {
+      this.revLit = lit;
+      this.revEls.forEach((el, i) => el.classList.toggle('on', i < lit));
+      $('#c-revs').classList.toggle('shift', w.rpm > 12150);
     }
   }
 
