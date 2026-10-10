@@ -32,18 +32,32 @@ built from real OpenStreetMap footprints.
   (T-cam) and **Helicopter**.
 - **Night look.** Floodlit asphalt with light pools, light towers, lit windows, aircraft beacons,
   water reflections, bloom and team-coloured light trails.
-- **Hand-built landmarks** (`src/skyline.js`) on their OSM footprints: Marina Bay Sands with leaning
-  east legs and the boat-shaped SkyPark, the Singapore Flyer, the Esplanade's spiked "durian" domes,
-  City Hall, the Old Supreme Court dome, the Supreme Court disc, the Cricket Club, the ArtScience
-  Museum lotus and CBD towers (UOB Plaza, OCBC Centre, One Raffles Quay). Distant skyline layers,
-  searchlights and fireworks add depth.
-- **Bridges** (`src/bridges.js`): Anderson Bridge (steel arches, stone portals) and Esplanade Bridge
-  (concrete arches). Each is a shade zone along the track that darkens the asphalt and every car on it.
-- **Pit complex, crowds, cars**: a three-level pit building with garages, Paddock Club and rooftop
-  deck (`src/pit.js`); ~21k instanced spectators that wave and flash phone lights as cars pass
-  (`src/crowd.js`); detailed cars with team liveries, numbers, brake glow and kerb sparks.
-- **Trackside boards** are drawn as text wordmarks from the `SPONSORS` list in `src/config.js`
-  (no logo files). Colours, liveries, landmarks, bridge zones and crowd density live there too.
+- **Hand-built landmarks** (`src/skyline.js`), modelled from the reference photos in `reference/`
+  (Wikimedia Commons, credited in each `SOURCES.md`) on their OSM footprints: Marina Bay Sands (legs
+  on an arc, cream structural edges, boat-shaped SkyPark with a lit underside and the north
+  cantilever), the ArtScience Museum lotus, the Singapore Flyer and terminal, the two Esplanade
+  shells (different sizes, warm sunshade lattice), UOB Plaza One and Two (stepped faceted crowns),
+  the Supreme Court saucer, the National Gallery (Old Supreme Court and City Hall), the Padang with
+  the Cricket Club and Recreation Club, St Andrew's Cathedral and The Fullerton Hotel. Before /
+  after screenshots are in `qa/landmarks/`.
+- **The rest of the city** is extruded from real OSM footprints and heights. OSM use / heritage /
+  roof tags (`scripts/fetch_building_tags.py`) pick the facade: office ribbons, hotel rooms,
+  flats, heritage shophouses with clay-tile roofs; windows are banded by floor with dark floors.
+  Roofs are dark with plant rooms, parapet lights and water tanks; the tallest towers carry red
+  aviation lights. Untagged blocks far from the circuit are plain filler.
+- **Bridges and viaducts**: Anderson and Esplanade Bridge, which the circuit drives over
+  (`src/bridges.js`), and the elevated East Coast Parkway / Benjamin Sheares Bridge decks it passes
+  under at T1, T4-T5 and T17, plus the Helix, Jubilee and Cavenagh bridges (`src/viaducts.js`, from
+  OSM via `scripts/fetch_bridges.py`). Overhead decks are real geometry, so they hide cars from every
+  camera; each span is a shade zone and is lit from the deck soffit.
+- **Pit complex, crowds, cars**: a three-level pit building with garages, Paddock Club, rooftop
+  deck and backlit SINGAPORE lettering (`src/pit.js`); ~21k instanced spectators that wave and flash
+  phone lights as cars pass (`src/crowd.js`); detailed cars in clean team colours, numbers, brake
+  glow and kerb sparks. Sponsor decals (`LIVERY_DECALS`) are only drawn for a team whose livery has
+  reference images in `config.LIVERIES`, and only when the car is big enough on screen.
+- **Trackside boards** show the sponsors' logo files (`assets/logos/`, fetched from Wikimedia Commons
+  by `scripts/fetch_logos.py`) on each brand's board colour; a brand without a file falls back to a
+  text wordmark. Colours, liveries, landmarks, bridge zones and crowd density live in `src/config.js`.
 
 ## Controls
 
