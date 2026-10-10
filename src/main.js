@@ -7,8 +7,12 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { loadAll } from './data.js';
 import { buildSky, buildCity, buildWater } from './world.js';
+import { buildSkyline, hiddenBuilding } from './skyline.js';
 import { Track } from './track.js';
 import { Cars } from './cars.js';
+import { Bridges } from './bridges.js';
+import { buildPitComplex } from './pit.js';
+import { Crowd } from './crowd.js';
 import { Director, MODES } from './camera.js';
 import { UI } from './ui.js';
 
@@ -21,7 +25,8 @@ async function boot() {
   try { sessionStorage.setItem('f1mb-session', id); } catch { /* storage unavailable */ }
   status.textContent = 'Building Marina Bay…';
   // sponsor boards and signs are drawn to canvas in the web font, so wait for it
-  try { await Promise.race([document.fonts.load('900 40px "Titillium Web"'), new Promise(r => setTimeout(r, 2500))]); } catch { /* fallback font */ }
+  const fonts = ['900 40px "Titillium Web"', '700 40px "Titillium Web"', '600 40px "Titillium Web"', '400 40px "Titillium Web"', '700 40px "Cinzel"'];
+  try { await Promise.race([Promise.all(fonts.map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 2500))]); } catch { /* fallback font */ }
   await new Promise(r => setTimeout(r, 30));
 
   // ---------------------------------------------------------------- renderer
@@ -49,11 +54,16 @@ async function boot() {
   scene.add(wash);
 
   buildSky(scene);
-  const { beacons, update: updateCity, heightAt } = buildCity(scene, city);
+  const { beacons, update: updateCity, heightAt, domes } = buildCity(scene, city, hiddenBuilding);
+  const skyline = buildSkyline(scene, city, domes);
   const water = buildWater(scene, city, renderer);
   const track = new Track(race);
+  const bridges = new Bridges(track);   // sets the shade zones before the asphalt material compiles
   track.build(scene, race);
-  const cars = new Cars(scene, race, track);
+  bridges.build(scene);
+  const pit = buildPitComplex(track.group, city, race, track);
+  const cars = new Cars(scene, race, track, bridges);
+  const crowd = new Crowd(scene, track, race, pit.decks);
   const director = new Director(camera, renderer.domElement, track, heightAt);
   director.overview();
 
@@ -128,7 +138,7 @@ async function boot() {
     ui.setCamera(m);
   }
   setCamera('orbit');
-  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, cars, race, track };
+  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, cars, race, track, bridges, renderer, crowd, pit, skyline, composer };
   ui.setPlaying(true);
   ui.setSpeed(1);
 
@@ -173,6 +183,8 @@ async function boot() {
 
     water.material.uniforms.time.value += dt;
     updateCity(dt);
+    skyline.update(dt);
+    crowd.update(dt, cars.cars, camera.position);
     track.update(dt);
     // speed blur follows the focused car's speed (only while playing)
     const want = state.playing ? (director.speedFactor || 0) * 0.075 * Math.min(1, state.speed) : 0;
@@ -190,6 +202,8 @@ async function boot() {
       ui.updateMinimap(cars.cars, order, state.focusK);
       cars.setPositions(order);
       ui.toasts(state.prevToastT, t);
+      // pit exit is closed until the start (races) and under a red flag
+      pit.setExit(!(race.isRace && t < race.race_start) && race.flagState(t).label !== 'RED');
       state.prevToastT = t;
     }
     slowAcc += dt;

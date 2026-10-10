@@ -1,6 +1,8 @@
 // Circuit geometry, sampled every ~2 m from the same smooth curve the cars are positioned on.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { CROWD } from './config.js';
+import { sponsorAtlas, boardTexture, titleSponsor, BOARD_UV_GLSL } from './sponsors.js';
 
 const HALF = 7.0;           // half track width (m)
 const LIFT = 0.18;          // track surface above ground
@@ -26,55 +28,19 @@ function decal(mat) {
   return mat;
 }
 
-// Fictional trackside sponsors, one 256 px board each in a 2048 px strip.
-const BOARDS = [
-  { bg: '#e10600', fg: '#ffffff', text: 'SINGAPORE GP', style: 'italic 900' },
-  { bg: '#ffd400', fg: '#111111', text: 'APEX TYRES', style: '900' },
-  { bg: '#0b6b3a', fg: '#ffffff', text: 'MARINA', style: '700', mark: '#ffffff' },
-  { bg: '#0d1520', fg: '#22d3ee', text: 'NIGHTLINE', style: 'italic 700' },
-  { bg: '#f4f4f4', fg: '#d50f25', text: 'LION CITY', style: '900' },
-  { bg: '#16307a', fg: '#fbbf24', text: 'SG AIRWAYS', style: '700' },
-  { bg: '#5b21b6', fg: '#ffffff', text: 'VOLTA', style: 'italic 900' },
-  { bg: '#050505', fg: '#ffffff', text: 'TIMEKEEPER', style: '600', stripe: '#ff7a00' },
-];
-export function sponsorAtlas() {
-  const tex = canvasTex(2048, 128, (c, w, h) => {
-    BOARDS.forEach((b, i) => {
-      const x = i * 256;
-      c.fillStyle = b.bg; c.fillRect(x, 0, 256, h);
-      if (b.stripe) { c.fillStyle = b.stripe; c.fillRect(x, h - 18, 256, 10); }
-      if (b.mark) { c.strokeStyle = b.mark; c.lineWidth = 5; c.beginPath(); c.arc(x + 38, h / 2, 20, 0, Math.PI * 2); c.stroke(); }
-      c.fillStyle = b.fg;
-      c.textAlign = 'center'; c.textBaseline = 'middle';
-      let size = 54;
-      do { c.font = `${b.style} ${size}px "Titillium Web", sans-serif`; size -= 2; } while (c.measureText(b.text).width > 222);
-      c.fillText(b.text, x + (b.mark ? 140 : 128), h / 2 + 3);
-      c.fillStyle = 'rgba(0,0,0,0.35)'; c.fillRect(x + 254, 0, 2, h);
-    });
-  }, false);
-  tex.generateMipmaps = false;
-  tex.minFilter = THREE.LinearFilter;
-  return tex;
-}
-export function boardTexture(atlas, id) {
-  const t = atlas.clone();
-  t.repeat.set(1 / BOARDS.length, 1);
-  t.offset.set(id / BOARDS.length, 0);
-  t.needsUpdate = true;
-  return t;
-}
-
 // Material that tiles a different sponsor board every uv.x unit (cell hashed to a board).
-function boardWallMaterial(atlas) {
+function boardWallMaterial(atlas, front = true) {
   const mat = new THREE.MeshStandardMaterial({ map: atlas, emissiveMap: atlas, emissive: 0xffffff, emissiveIntensity: 0.32, roughness: 0.7, side: THREE.DoubleSide });
   mat.onBeforeCompile = (s) => {
-    const fn = `vec2 boardUv(vec2 uv){ float cell = floor(uv.x); float h = fract(sin(cell * 12.9898 + 4.1) * 43758.5453);
-      float id = floor(h * ${BOARDS.length}.0); return vec2((id + fract(uv.x)) / ${BOARDS.length}.0, uv.y); }`;
     s.fragmentShader = s.fragmentShader
-      .replace('#include <common>', `#include <common>\n${fn}`)
-      .replace('#include <map_fragment>', 'diffuseColor *= texture2D(map, boardUv(vMapUv));')
-      .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance *= texture2D(emissiveMap, boardUv(vEmissiveMapUv)).rgb;');
+      .replace('#include <common>', `#include <common>\n${BOARD_UV_GLSL}\nconst bool uBoardsFront = ${front};`)
+      .replace('#include <map_fragment>', `
+        // boards face the track; the back of the wall is bare concrete
+        float faceTrack = gl_FrontFacing == uBoardsFront ? 1.0 : 0.0;
+        diffuseColor.rgb *= mix(vec3(0.42, 0.43, 0.45), texture2D(map, boardUv(vMapUv)).rgb, faceTrack);`)
+      .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance *= mix(vec3(0.12), texture2D(emissiveMap, boardUv(vEmissiveMapUv)).rgb, faceTrack);');
   };
+  mat.customProgramCacheKey = () => `boards-${front}`;
   return mat;
 }
 
@@ -119,6 +85,8 @@ export class Track {
       this.grid.get(key).push(i);
     });
     this.animated = [];
+    // shade zones along the track (s0, s1, shade, feather), filled in by Bridges
+    this.zoneUniform = { value: Array.from({ length: 4 }, () => new THREE.Vector4(-1e6, -1e6, 1, 1)) };
   }
 
   nearest(x, z) {
@@ -241,15 +209,29 @@ export class Track {
     asphaltTex.repeat.set(4, 1 / 4);
     const asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.72, metalness: 0.05 });
     asphalt.onBeforeCompile = (s) => {
+      s.uniforms.uZones = this.zoneUniform;
       s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vTrackUv;')
         .replace('#include <uv_vertex>', '#include <uv_vertex>\nvTrackUv = uv;');
-      s.fragmentShader = s.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vTrackUv;')
+      s.fragmentShader = s.fragmentShader.replace('#include <common>', `#include <common>
+          varying vec2 vTrackUv; uniform vec4 uZones[4];
+          float zoneShade(float d){
+            float v = 1.0;
+            for (int k = 0; k < 4; k++) {
+              vec4 z = uZones[k];
+              float w = smoothstep(z.x - z.w, z.x + z.w, d) * (1.0 - smoothstep(z.y - z.w, z.y + z.w, d));
+              v = min(v, 1.0 - (1.0 - z.z) * w);
+            }
+            return v;
+          }`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           float along = fract(vTrackUv.y / 32.0);
           float pool = exp(-pow((along - 0.5) * 3.2, 2.0));
           float side = 1.0 - smoothstep(0.0, 1.0, abs(vTrackUv.x - 0.5) * 2.0) * 0.45;
           totalEmissiveRadiance += vec3(0.07, 0.072, 0.08) * (0.55 + 1.0 * pool) * side;
-          diffuseColor.rgb *= 1.0 - 0.2 * exp(-pow((vTrackUv.x - 0.5) * 4.0, 2.0));`);
+          diffuseColor.rgb *= 1.0 - 0.2 * exp(-pow((vTrackUv.x - 0.5) * 4.0, 2.0));
+          // bridge zones: the deck structure blocks part of the floodlighting
+          float zs = zoneShade(vTrackUv.y);
+          diffuseColor.rgb *= zs; totalEmissiveRadiance *= zs;`);
     };
     g.add(new THREE.Mesh(this.ribbon(-HALF, HALF, 0), asphalt));
     // run-off / shoulder up to the wall
@@ -290,10 +272,12 @@ export class Track {
     g.add(this.drsMesh);
 
     // ---------- walls: concrete with sponsor boards every 12 m; debris fence with posts
-    const wallMat = boardWallMaterial(this.atlas);
-    const wallL = this.wall(WALL, 1.15, 0, 0, this.n, -1 / 12);
-    const wallR = this.wall(-WALL, 1.15, 0, 0, this.n, 1 / 12);
-    g.add(new THREE.Mesh(mergeGeometries([wallL, wallR]), wallMat));
+    // wall() front faces point toward +N, so the +N wall shows its boards on the back face
+    const wallMat = boardWallMaterial(this.atlas, true), wallMatBack = boardWallMaterial(this.atlas, false);
+    // boards keep the atlas cell's 4:1 shape on the 1.15 m wall
+    const wallL = this.wall(WALL, 1.15, 0, 0, this.n, -1 / 4.6);
+    const wallR = this.wall(-WALL, 1.15, 0, 0, this.n, 1 / 4.6);
+    g.add(new THREE.Mesh(wallL, wallMatBack), new THREE.Mesh(wallR, wallMat));
     const capMat = new THREE.MeshStandardMaterial({ color: 0x9aa0aa, roughness: 0.8, emissive: 0x15161a });
     g.add(new THREE.Mesh(mergeGeometries([this.ribbon(WALL - 0.12, WALL + 0.12, 1.15), this.ribbon(-WALL - 0.12, -WALL + 0.12, 1.15)]), capMat));
     const fenceTex = canvasTex(64, 64, (c, w, h) => {
@@ -328,6 +312,18 @@ export class Track {
     const step = Math.max(1, Math.round(spacing / this.bin));
     for (let i = phase; i < this.n; i += step) for (const o of offsets) out.push({ i, o });
     return out;
+  }
+
+  // a row of sponsor boards (4:1 each) centred on the origin in the local xy plane
+  boardRow(ids, h, bright = 1.4) {
+    const row = new THREE.Group(), w = h * 4;
+    ids.forEach((id, j) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ map: boardTexture(this.atlas, id), color: new THREE.Color(bright, bright, bright) }));
+      m.position.x = (j - (ids.length - 1) / 2) * w;
+      row.add(m);
+    });
+    return row;
   }
 
   // InstancedMesh at track placements, local +z facing the track centre
@@ -441,10 +437,9 @@ export class Track {
         leg.position.set(sgn * (span / 2 - 0.5), 4.8, 0);
         gr.add(leg);
       }
-      const board = new THREE.MeshStandardMaterial({ map: boardTexture(this.atlas, k % BOARDS.length), emissive: 0xffffff, emissiveIntensity: 0.6 });
-      board.emissiveMap = board.map;
+      const banner = this.boardRow([k * 2 + 1, k * 2 + 2], 1.7);
       for (const face of [-1, 1]) {
-        const ban = new THREE.Mesh(new THREE.PlaneGeometry(span * 0.62, 1.7), board);
+        const ban = banner.clone();
         ban.position.set(-span * 0.17, 8.5, face * 0.81);
         ban.rotation.y = face > 0 ? 0 : Math.PI;
         const led = new THREE.Mesh(new THREE.PlaneGeometry(span * 0.32, 1.5), tickMat);
@@ -500,11 +495,20 @@ export class Track {
       c.fillStyle = '#fff'; c.font = 'italic 900 40px "Titillium Web", sans-serif'; c.textAlign = 'center';
       c.fillText('SINGAPORE GRAND PRIX', w / 2, 46);
     }, false);
-    const signM = new THREE.Mesh(new THREE.PlaneGeometry(WALL * 2, 1.4),
+    // race name in the middle, title partner boards either side
+    const signM = new THREE.Mesh(new THREE.PlaneGeometry(10.8, 1.3),
       new THREE.MeshBasicMaterial({ map: sign, color: new THREE.Color(1.4, 1.4, 1.4) }));
-    signM.position.set(0, 7.5, -0.62); signM.rotation.y = Math.PI;
-    const signF = signM.clone(); signF.position.z = 0.62; signF.rotation.y = 0;
-    gantry.add(signM, signF);
+    const title = titleSponsor();
+    for (const face of [-1, 1]) {
+      const m = signM.clone();
+      m.position.set(0, 7.5, face * 0.62); m.rotation.y = face > 0 ? 0 : Math.PI;
+      gantry.add(m);
+      for (const sx of [-1, 1]) {
+        const b = this.boardRow([title], 1.3);
+        b.position.set(sx * 8.1, 7.5, face * 0.62); b.rotation.y = face > 0 ? 0 : Math.PI;
+        gantry.add(b);
+      }
+    }
     gantry.position.set(p.x + t.x * 3, p.y - LIFT, p.z + t.z * 3);
     gantry.rotation.y = Math.atan2(-t.x, -t.z);
     g.add(gantry);
@@ -555,39 +559,7 @@ export class Track {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setIndex(idx); geo.computeVertexNormals();
     g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2a2c33, roughness: 0.8, emissive: 0x18191d, side: THREE.DoubleSide })));
-
-    // pit building: team garages below, glass hospitality level above, continuous along the lane
-    const teams = [...new Map(race.drivers.map(d => [d.team, d.color])).entries()];
-    const from = Math.floor(N * 0.2), to = Math.floor(N * 0.85);
-    const bays = teams.length * 2;
-    const shell = new THREE.MeshStandardMaterial({ color: 0x1c1f27, metalness: 0.4, roughness: 0.55 });
-    const glass = new THREE.MeshStandardMaterial({ color: 0x2a3446, metalness: 0.8, roughness: 0.15, emissive: new THREE.Color(1.0, 0.82, 0.6), emissiveIntensity: 0.55 });
-    const roof = new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.5, roughness: 0.4 });
-    for (let k = 0; k < bays; k++) {
-      const f = frames[from + Math.floor((k + 0.5) / bays * (to - from))];
-      const len = (to - from) / N * curve.getLength() / bays;
-      const ctr = f.p.clone().addScaledVector(f.nrm, f.side * (W + 8));
-      const bay = new THREE.Group();
-      const ground = new THREE.Mesh(new THREE.BoxGeometry(len - 0.3, 6, 14), shell);
-      ground.position.y = 3;
-      const club = new THREE.Mesh(new THREE.BoxGeometry(len - 0.1, 4, 16), glass);
-      club.position.set(0, 8, -1);
-      const lid = new THREE.Mesh(new THREE.BoxGeometry(len, 0.5, 18), roof);
-      lid.position.set(0, 10.25, -1.5);
-      const col = new THREE.Color(teams[Math.floor(k / 2)][1]);
-      const door = new THREE.Mesh(new THREE.PlaneGeometry(len - 2, 4.4), new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(1.4) }));
-      door.position.set(0, 2.4, -7.05);
-      door.rotation.y = Math.PI;
-      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(len - 0.3, 0.5), new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(2) }));
-      stripe.position.set(0, 5.6, -7.06);
-      stripe.rotation.y = Math.PI;
-      bay.add(ground, club, lid, door, stripe);
-      bay.position.set(ctr.x, f.y - LIFT, ctr.z);
-      // local -z faces the pit lane
-      const face = f.nrm.clone().multiplyScalar(-f.side);
-      bay.rotation.y = Math.atan2(-face.x, -face.z);
-      g.add(bay);
-    }
+    // the pit building itself is built in pit.js
   }
 
   buildGrandstands(g) {
@@ -605,15 +577,22 @@ export class Track {
       }
       c.globalAlpha = 1;
     });
-    const seatMat = new THREE.MeshStandardMaterial({ map: crowd, emissive: 0xffffff, emissiveMap: crowd, emissiveIntensity: 0.65, roughness: 0.9 });
+    // painted crowd reads from the air; up close the instanced spectators (crowd.js) stand in front of it
+    const seatMat = new THREE.MeshStandardMaterial({ map: crowd, emissive: 0xffffff, emissiveMap: crowd, emissiveIntensity: 0.45, roughness: 0.9 });
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x2c313c, metalness: 0.5, roughness: 0.45 });
     const lightMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.1, 1.9) });
     const plan = [[1, 90], [3, 70], [7, 80], [10, 70], [13, 60], [14, 80], [16, 70], [18, 80], [19, 60]];
-    const placements = plan.map(([n, len]) => ({ i: this.corners.find(c => c.n === n)?.i, len })).filter(p => p.i != null);
-    placements.push({ i: Math.floor(this.n * 0.985), len: 110, straight: true }); // opposite the pits
+    const placements = plan.map(([n, len]) => ({ i: this.corners.find(c => c.n === n)?.i, len, tag: n === 1 ? 'T1' : `T${n}` })).filter(p => p.i != null);
+    placements.push({ i: Math.floor(this.n * 0.985), len: 110, side: 1, tag: 'pit' }); // opposite the pits
+    // the Padang stand faces the track from the field side
+    const pd = CROWD.padangStand;
+    const pi = Math.round(pd.s / this.bin) % this.n;
+    const toward = new THREE.Vector3(pd.toward[0], 0, -pd.toward[1]).sub(this.P[pi]);
+    placements.push({ i: pi, len: pd.len, side: Math.sign(toward.dot(this.N[pi])) || 1, tag: 'padang' });
     this.stands = [];
+    this.standInfo = [];
     placements.forEach((pl, k) => {
-      const outside = pl.straight ? 1 : -(Math.sign(this.curv[pl.i]) || 1);
+      const outside = pl.side ?? -(Math.sign(this.curv[pl.i]) || 1);
       const p = this.at(pl.i, outside * (WALL + 5));
       this.stands.push({ p: p.clone(), r: pl.len / 2 + 25 });
       const nrm = this.N[pl.i];
@@ -644,8 +623,7 @@ export class Track {
         st.add(colm);
       }
       // sponsor fascia under the canopy edge
-      const fascia = new THREE.Mesh(new THREE.PlaneGeometry(len * 0.6, 1.2),
-        new THREE.MeshBasicMaterial({ map: boardTexture(this.atlas, (k + 3) % BOARDS.length), color: new THREE.Color(1.3, 1.3, 1.3) }));
+      const fascia = this.boardRow(Array.from({ length: Math.floor(len * 0.7 / 4.8) }, (_, j) => k * 3 + j), 1.2, 1.3);
       fascia.position.set(-3.6, top + 4.6, 0);
       fascia.rotation.y = -Math.PI / 2;
       st.add(fascia);
@@ -653,6 +631,8 @@ export class Track {
       // local +x points away from the track
       st.rotation.y = Math.atan2(-nrm.z * outside, nrm.x * outside);
       g.add(st);
+      st.updateMatrixWorld(true);
+      this.standInfo.push({ group: st, rows, len, tag: pl.tag });
     });
   }
 
