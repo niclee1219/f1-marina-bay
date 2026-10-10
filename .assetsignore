@@ -9,6 +9,7 @@ README.md
 docs
 scripts
 data/raw
+raw
 **/__pycache__
 .DS_Store
 qa
