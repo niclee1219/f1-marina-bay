@@ -296,7 +296,7 @@ export class Director {
       // through a spring (soaks up kerb steps); vibration is low-frequency (no 60 fps aliasing) and
       // scaled by CAMERA.onboard.shake. The head leans with cornering load and nods under braking.
       const O = CAMERA.onboard;
-      if (this.first || this.camY == null) { this.camY = p.y; this.lean = 0; this.nod = 0; }
+      if (this.first || this.camY == null) { this.camY = p.y; this.lean = 0; this.nod = 0; this.lookYaw = 0; }
       this.camY += (p.y - this.camY) * (1 - Math.exp(-O.smoothing * 1.5 * simDt));
       const shake = (0.004 + sp * 0.014) * O.shake * (playing ? 1 : 0);
       const t = this.time;
@@ -308,9 +308,11 @@ export class Director {
       const k = 1 - Math.exp(-4 * dt);
       this.lean += (THREE.MathUtils.clamp(latG * O.lean, -0.09, 0.09) - this.lean) * k;
       this.nod += ((focus.tel && focus.tel.brake ? O.nod : 0) - this.nod) * k;
+      // look into the corner: a few degrees of head yaw toward the turn (left turn = +yaw)
+      this.lookYaw += (THREE.MathUtils.clamp(this.yawRate * O.look, -0.09, 0.09) - this.lookYaw) * k;
       const base = new THREE.Vector3(p.x, this.camY, p.z);
       wantPos = base.clone().addScaledVector(d, -0.25).add(new THREE.Vector3(0, O.eye, 0)).add(jitter);
-      wantLook = base.clone().addScaledVector(d, 30).add(new THREE.Vector3(0, O.eye - 0.35 - this.nod, 0)).add(jitter.multiplyScalar(2));
+      wantLook = base.clone().addScaledVector(d, 30).add(new THREE.Vector3(0, O.eye - 1.5 - this.nod, 0)).add(jitter.multiplyScalar(2));
       fov = 72 + sp * 10;
       lerp = 1;
       this.speedFactor = sp;
@@ -367,7 +369,7 @@ export class Director {
     cam.position.copy(this.pos);
     cam.up.set(0, 1, 0);
     cam.lookAt(this.look);
-    if (this.mode === 'onboard') cam.rotateZ(this.lean);
+    if (this.mode === 'onboard') { cam.rotateZ(this.lean); cam.rotateY(this.lookYaw || 0); }
     if (Math.abs(cam.fov - this.smoothFov) > 0.01) {
       cam.fov = this.smoothFov;
       cam.updateProjectionMatrix();

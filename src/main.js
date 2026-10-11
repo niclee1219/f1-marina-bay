@@ -244,7 +244,7 @@ async function boot() {
     autoDir.update(dt, t, state.playing ? state.speed : 1);
     if (cockpit.root.visible) {
       cockpit.setTeam(race.drivers[state.focusK].color);
-      cockpit.update(dt, state.playing ? dt * state.speed : 0, cars.cars[state.focusK].tel, director.yawRate || 0);
+      cockpit.update(dt, state.playing ? dt * state.speed : 0, cars.cars[state.focusK].tel, director.yawRate || 0, director.lookYaw || 0);
     }
 
     // start lights: one per second, out at lights-out, on the gantry and as the HUD graphic

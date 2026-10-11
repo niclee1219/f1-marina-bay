@@ -145,7 +145,7 @@ export const HAZE = { fogColor: 0x131528, fogDensity: 0.00034, shafts: 0.05 };
 // cornering (rad); nod: how far the view dips under braking (m at 30 m ahead). free: the free camera's depth range (near grows with distance to the orbit target but
 // never beyond `nearHeightShare` of the camera's height above ground, so close decks aren't clipped).
 export const CAMERA = {
-  onboard: { shake: 0.1, smoothing: 7, maxYawRate: 2.4, eye: 0.74, lean: 0.03, nod: 1.2 },
+  onboard: { shake: 0.18, look: 0.06, smoothing: 7, maxYawRate: 2.4, eye: 0.74, lean: 0.03, nod: 1.2 },
   free: { nearPerMetre: 0.004, nearHeightShare: 0.35, nearMin: 0.3, nearMax: 12, far: 20000 },
 };
 
