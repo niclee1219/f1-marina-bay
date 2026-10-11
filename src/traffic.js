@@ -13,7 +13,8 @@ import { TRAFFIC } from './config.js';
 export class Traffic {
   constructor(scene, city, track) {
     this.paths = [];
-    const closed = (x, z) => track.nearest(x, z).d < TRAFFIC.circuitGap;
+    // the circuit is closed for the race, and so is the paddock behind the pit building
+    const closed = (x, z) => track.nearest(x, z).d < TRAFFIC.circuitGap || !!(track.inPaddock && track.inPaddock(x, z));
     const addPath = (pts, w) => {
       if (pts.length < 2) return;
       const cum = [0];

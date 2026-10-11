@@ -6,13 +6,13 @@
 // Text only: team names and driver numbers, no logos.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PIT_LANE } from './config.js';
+import { PIT_LANE, PADDOCK } from './config.js';
 import { frontage } from './pitlane.js';
 
 const P = PIT_LANE;
 
 // unit box mapped into lane space: u0..u1 along, w0..w1 across, h0..h1 up
-function laneBox(L, u0, u1, w0, w1, h0, h1) {
+export function laneBox(L, u0, u1, w0, w1, h0, h1) {
   const g = new THREE.BoxGeometry(1, 1, 1).toNonIndexed();
   const pos = g.attributes.position, v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
@@ -27,7 +27,7 @@ function laneBox(L, u0, u1, w0, w1, h0, h1) {
 
 // vertical quad facing the lane (toward -w) at w, spanning u0..u1, h0..h1, uv rect [a, b, c, d];
 // u reads left to right for someone in the lane facing the garages
-function laneSign(L, u0, u1, w, h0, h1, uv) {
+export function laneSign(L, u0, u1, w, h0, h1, uv) {
   const [ua, ub] = L.side < 0 ? [u0, u1] : [u1, u0];
   const p = (u, h) => L.point(u, w, h);
   const q = [p(ua, h0), p(ub, h0), p(ua, h1), p(ub, h1)];
@@ -40,7 +40,7 @@ function laneSign(L, u0, u1, w, h0, h1, uv) {
 }
 
 // flat quad on the lane: u0..u1, w0..w1; text reads from the pit wall (up = toward the garages)
-function laneDecal(L, u0, u1, w0, w1, uv, lift = 0.03) {
+export function laneDecal(L, u0, u1, w0, w1, uv, lift = 0.03) {
   const [ua, ub] = L.side < 0 ? [u0, u1] : [u1, u0];
   const p = (u, w) => L.point(u, w, lift);
   const q = [p(ua, w0), p(ub, w0), p(ua, w1), p(ub, w1)];
@@ -52,7 +52,7 @@ function laneDecal(L, u0, u1, w0, w1, uv, lift = 0.03) {
   return g;
 }
 
-function tint(g, c, k = 1) {
+export function tint(g, c, k = 1) {
   const n = g.attributes.position.count, a = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) { a[i * 3] = c.r * k; a[i * 3 + 1] = c.g * k; a[i * 3 + 2] = c.b * k; }
   g.setAttribute('color', new THREE.BufferAttribute(a, 3));
@@ -185,7 +185,7 @@ export function buildGarages(g, track, race) {
   });
 
   // ---- closed frontage beyond the first and last garage, so the building front stays continuous
-  const ends = [[L.boxFrom - 40, lay.from], [lay.to, L.boxTo + 40]];
+  const ends = [[lay.from - PADDOCK.endRun, lay.from], [lay.to, lay.to + PADDOCK.endRun]];
   for (const [a, b] of ends) if (b > a) solid.push(tint(laneBox(L, a, b, G, G + D, 0, H + 1.3), grey));
 
   const out = new THREE.Group();

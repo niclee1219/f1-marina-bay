@@ -55,8 +55,17 @@ built from real OpenStreetMap footprints.
   under at T1, T4-T5 and T17, plus the Helix, Jubilee and Cavenagh bridges (`src/viaducts.js`, from
   OSM via `scripts/fetch_bridges.py`). Overhead decks are real geometry, so they hide cars from every
   camera; each span is a shade zone and is lit from the deck soffit.
-- **Pit complex, crowds, cars**: a three-level pit building with garages, Paddock Club, rooftop
-  deck and raised red-sided SINGAPORE lettering along the roof, as in the overhead TV shot (`src/pit.js`); ~21k instanced spectators that wave and flash
+- **Grid, pit lane and pit complex**: a staggered grid (pole on the left, 8 m per position) with
+  painted boxes, the start line ahead of pole and the light gantry over it; cars ease into their
+  boxes on the formation hold (`Race.gridShift`). The pit lane is fitted from every recorded pit stop
+  (`scripts/fit_pit_lane.py`, `src/pitlane.js`): entry before the final corner, exit after Turn 1,
+  80 km/h lines, entry / exit lines, bollards and the exit light. Team boxes sit where each team's
+  cars stopped, in the season's pit order, with open lit garages, driver number boards, box rigs,
+  pit-wall stands and pit crews timed to each stop (`src/garages.js`, `src/pitcrew.js`). The
+  multi-storey pit building has hospitality balconies, the podium over the pit lane, race control
+  and one SINGAPORE sign; the paddock behind it has team hospitality units and trucks (`src/pit.js`).
+  Crews and crowd density follow `?quality=low|high` (auto-low on low-power devices).
+- **Crowds, cars**: ~21k instanced spectators that wave and flash
   phone lights as cars pass (`src/crowd.js`); detailed cars in clean team colours, numbers, brake
   glow and kerb sparks. Sponsor decals (`LIVERY_DECALS`) are only drawn for a team whose livery has
   reference images in `config.LIVERIES`, and only when the car is big enough on screen.
