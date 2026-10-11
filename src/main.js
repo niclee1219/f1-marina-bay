@@ -204,7 +204,7 @@ async function boot() {
   const autoDir = new AutoDirector(race, director, cars.cars, k => { state.focusK = k; });
   director.setMode('orbit', 0);
   ui.setCamera('orbit');
-  if (location.search.includes('debug')) window.__f1 = { lateralView, scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, crew, identity, skyline, composer, streets, traffic };
+  if (location.search.includes('debug')) window.__f1 = { reflect, cockpit, lateralView, scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, crew, identity, skyline, composer, streets, traffic };
   ui.setPlaying(state.playing);
   ui.setSpeed(1);
 
@@ -234,6 +234,7 @@ async function boot() {
   // ---------------------------------------------------------------- loop
   const clock = new THREE.Clock();
   let uiAcc = 1, slowAcc = 1, order = race.order(state.t), timing = race.timing(state.t);
+  let frameMs = 16, frameN = 0;
   function frame() {
     const dt = Math.min(clock.getDelta(), 0.1);
     if (state.playing) {
@@ -241,6 +242,10 @@ async function boot() {
       if (state.t >= race.duration) { state.t = race.duration; state.playing = false; ui.setPlaying(false); }
     }
     const t = state.t;
+    // reflections and mirrors are extra render passes: when frames get slow, refresh them less often
+    // (every 2nd / 4th frame) so the motion itself stays smooth
+    frameMs += (dt * 1000 - frameMs) * 0.05; frameN++;
+    const refreshEvery = frameMs < 20 ? 1 : frameMs < 30 ? 2 : 4;
     // pixels per radian at the screen centre, for size-on-screen decisions (car decals)
     state.opts.pixelScale = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     cars.update(t, state.playing ? dt * state.speed : 0, camera.position, state.focusK, state.opts);
@@ -259,12 +264,12 @@ async function boot() {
       const ty = race.tyre(state.focusK, t);
       cockpit.setCompound(ty && ty.comp);
       cockpit.update(dt, state.playing ? dt * state.speed : 0, cars.cars[state.focusK].tel, cars.cars[state.focusK].steer, director.lookYaw || 0);
-      cockpit.renderMirrors(renderer, scene);
+      if (frameN % refreshEvery === 0) cockpit.renderMirrors(renderer, scene);
     }
     // surroundings the bodywork reflects: captured at the focused car, left out of its own reflection
     {
       const fc = cars.cars[state.focusK];
-      reflect.update(fc.world.clone().setY(fc.world.y + 1), [cockpit.root, fc.root], ['onboard', 'chase', 'tv', 'dolly'].includes(director.mode));
+      reflect.update(fc.world.clone().setY(fc.world.y + 1), [cockpit.root, fc.root], frameN % refreshEvery === 0 && ['onboard', 'chase', 'tv', 'dolly'].includes(director.mode));
     }
 
     // start lights: one per second, out at lights-out, on the gantry and as the HUD graphic

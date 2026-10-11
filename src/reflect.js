@@ -1,11 +1,11 @@
 // Live reflections for the cars and the cockpit: a small cube map of the surroundings, captured
-// from the focused car one face per frame (so the cost is a single cheap extra pass, and the whole
-// map refreshes every few frames). Car and cockpit materials use `texture` as their envMap, so the
+// from the focused car one face per frame (so the cost is a single cheap extra pass, and the map
+// rolls forward a sixth at a time instead of jumping all at once). Car and cockpit materials use `texture` as their envMap, so the
 // bodywork shows the floodlights, grandstands and track around it. three.js converts the render
 // target to a prefiltered map by itself once `needsPMREMUpdate` is set, which is why roughness works.
 import * as THREE from 'three';
 
-const SIZE = 128;
+const SIZE = 64;
 
 export class Reflections {
   constructor(renderer, scene) {
@@ -35,7 +35,7 @@ export class Reflections {
       r.clear();
       r.render(this.scene, this.cam.children[f]);
     }
-    if (!this.seeded || this.face % 6 === 0) this.rt.texture.needsPMREMUpdate = true;
+    this.rt.texture.needsPMREMUpdate = true;     // every face: a small map is cheap to prefilter, and the reflection then rolls on continuously
     this.seeded = true;
     hide.forEach((o, i) => { o.visible = vis[i]; });
     r.setRenderTarget(prev);

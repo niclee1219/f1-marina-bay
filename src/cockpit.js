@@ -131,10 +131,10 @@ export class Cockpit {
       for (let k = 0; k < uv.count; k++) {                 // map the shape to 0..1, flipped: a mirror image
         uv.setXY(k, 1 - (fg.attributes.position.getX(k) + 0.06) / 0.12, (fg.attributes.position.getY(k) + 0.033) / 0.066);
       }
-      const rt = new THREE.WebGLRenderTarget(256, 128, { depthBuffer: true });
+      const rt = new THREE.WebGLRenderTarget(160, 80, { depthBuffer: true });
       const face = add(fg, new THREE.MeshBasicMaterial({ map: rt.texture, color: 0xdddddd }), g);
       face.position.z = 0.0105;
-      this.mirrors.push({ g, s, rt, cam: new THREE.PerspectiveCamera(38, 2, 0.5, 1500) });
+      this.mirrors.push({ g, s, rt, cam: new THREE.PerspectiveCamera(38, 2, 0.5, 450) });
     }
     this.mirrorTick = 0;
 
