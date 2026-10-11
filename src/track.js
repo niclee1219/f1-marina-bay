@@ -1,7 +1,7 @@
 // Circuit geometry, sampled every ~2 m from the same smooth curve the cars are positioned on.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CROWD, HAZE } from './config.js';
+import { CROWD, HAZE, GRID } from './config.js';
 import { sponsorAtlas, boardTexture, titleSponsor, BOARD_UV_GLSL, logoImage } from './sponsors.js';
 
 const HALF = 7.0;           // half track width (m)
@@ -603,23 +603,72 @@ export class Track {
     });
   }
 
+  // centreline frame at arc length s: point on the asphalt, unit tangent, +offset normal
+  frameAt(s) {
+    const C = this.curve.at(s, {});
+    return { p: new THREE.Vector3(C.x, LIFT + C.e, -C.y), t: new THREE.Vector3(C.tx, 0, -C.ty), n: new THREE.Vector3(C.ty, 0, C.tx) };
+  }
+
+  // flat quad painted on the asphalt in the frame at s: lateral lx0..lx1 (+ = the +offset side),
+  // along the track lz0..lz1 (+ = direction of travel); uv u runs with lx, v with lz
+  paintQuad(s, lx0, lx1, lz0, lz1, uv = [0, 0, 1, 1], lift = 0.03) {
+    const { p, t, n } = this.frameAt(s);
+    const pt = (lx, lz) => [p.x + n.x * lx + t.x * lz, p.y + lift, p.z + n.z * lx + t.z * lz];
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([...pt(lx0, lz0), ...pt(lx1, lz0), ...pt(lx0, lz1), ...pt(lx1, lz1)], 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute([uv[0], uv[1], uv[2], uv[1], uv[0], uv[3], uv[2], uv[3]], 2));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+    // wind so the face points up whichever way the frame is handed
+    g.setIndex(n.x * t.z - n.z * t.x > 0 ? [0, 2, 1, 1, 2, 3] : [0, 1, 2, 1, 3, 2]);
+    return g;
+  }
+
+  // Start area. s = 0 is the control (timing / finish) line: where OpenF1 laps start. At Marina Bay
+  // the grid sits after it, so the start line is a separate line ahead of pole (race.grid, from
+  // data.js). Grid boxes follow the regulation stagger (config GRID), the start-light gantry spans
+  // the start line.
   buildStart(g, race) {
     const chk = canvasTex(128, 16, (c, w, h) => {
       for (let x = 0; x < w; x += 8) for (let y = 0; y < h; y += 8) {
         c.fillStyle = ((x + y) / 8) % 2 ? '#111' : '#f4f4f4'; c.fillRect(x, y, 8, 8);
       }
     }, false);
-    const p = this.P[0], t = this.T[0];
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2, 1.4),
-      decal(new THREE.MeshStandardMaterial({ map: chk, emissive: 0xffffff, emissiveMap: chk, emissiveIntensity: 0.4 })));
-    line.rotation.x = -Math.PI / 2;
-    const holder = new THREE.Group();
-    holder.add(line);
-    holder.position.set(p.x, p.y + 0.03, p.z);
-    holder.rotation.y = Math.atan2(t.x, t.z);
-    g.add(holder);
+    const paintMat = decal(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.86, 0.86, 0.86) }));
+    // finish / timing line: white line with the chequered strip painted just before it
+    g.add(new THREE.Mesh(this.paintQuad(0, -HALF, HALF, -1.6, -0.3, [0, 0, HALF * 2 / 1.3, 1]),
+      decal(new THREE.MeshStandardMaterial({ map: chk, emissive: 0xffffff, emissiveMap: chk, emissiveIntensity: 0.4 }))));
+    chk.wrapS = THREE.RepeatWrapping;
+    const lines = [this.paintQuad(0, -HALF, HALF, -0.3, 0.3)];
 
-    // gantry with five red start lights
+    const G = race.grid;
+    const sPole = G ? G.sPole : GRID.poleFallback;
+    const sStart = sPole + GRID.startAhead;
+    lines.push(this.paintQuad(sStart, -HALF, HALF, -0.25, 0.25));
+    if (G) {
+      // boxes: a bar across the front of the slot with short legs back along the car, the
+      // position number painted ahead of the bar (reads upright from the car behind)
+      const n = G.slots.length;
+      const atlas = canvasTex(128 * n, 160, (c, w, h) => {
+        c.clearRect(0, 0, w, h);
+        c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.font = '900 132px "Titillium Web", sans-serif';
+        G.slots.forEach((sl, i) => c.fillText(String(sl.p), 128 * (i + 0.5), 84));
+      }, false);
+      const nums = [];
+      G.slots.forEach((sl, i) => {
+        const f = sl.s + GRID.boxFront, half = 1.5;
+        lines.push(this.paintQuad(f, sl.d - half, sl.d + half, -0.15, 0.15));
+        lines.push(this.paintQuad(f, sl.d - half, sl.d - half + 0.2, -2.0, -0.15));
+        lines.push(this.paintQuad(f, sl.d + half - 0.2, sl.d + half, -2.0, -0.15));
+        nums.push(this.paintQuad(f, sl.d - 0.9, sl.d + 0.9, 0.6, 2.85, [i / n, 0, (i + 1) / n, 1]));
+      });
+      g.add(new THREE.Mesh(mergeGeometries(nums), decal(new THREE.MeshBasicMaterial({ map: atlas, color: new THREE.Color(0.86, 0.86, 0.86), transparent: true, depthWrite: false }))));
+      this.gridSlots = G.slots;
+    }
+    g.add(new THREE.Mesh(mergeGeometries(lines), paintMat));
+
+    // gantry with five red start lights, spanning the start line
+    const { p, t } = this.frameAt(sStart);
     const gantry = new THREE.Group();
     const steel = new THREE.MeshStandardMaterial({ color: 0x2b2f38, metalness: 0.7, roughness: 0.4 });
     const beam = new THREE.Mesh(new THREE.BoxGeometry(WALL * 2 + 2, 1.6, 1.2), steel);
@@ -659,31 +708,9 @@ export class Track {
         gantry.add(b);
       }
     }
-    gantry.position.set(p.x + t.x * 3, p.y - LIFT, p.z + t.z * 3);
+    gantry.position.set(p.x, p.y - LIFT, p.z);
     gantry.rotation.y = Math.atan2(-t.x, -t.z);
     g.add(gantry);
-
-    // grid boxes painted where the cars actually lined up (races only)
-    if (!race.isRace) return;
-    const tmp = [0, 0, 0, 0];
-    const tGrid = race.race_start - 3;
-    const boxes = [];
-    race.drivers.forEach(d => {
-      race.pos(d.k, tGrid, tmp);
-      const x = tmp[0], z = -tmp[1];
-      const { i } = this.nearest(x, z);
-      const tt = this.T[i];
-      const b = new THREE.PlaneGeometry(2.6, 0.25);
-      const b2 = new THREE.PlaneGeometry(0.25, 1.6); b2.translate(-1.2, -0.8, 0);
-      const b3 = b2.clone(); b3.translate(2.4, 0, 0);
-      const m = mergeGeometries([b, b2, b3]);
-      m.translate(0, 2.6, 0);
-      m.rotateX(-Math.PI / 2);
-      m.rotateY(Math.atan2(-tt.x, -tt.z));
-      m.translate(x, this.P[i].y + 0.03, z);
-      boxes.push(m);
-    });
-    g.add(new THREE.Mesh(mergeGeometries(boxes), decal(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.75, 0.75, 0.75) }))));
   }
 
   buildPit(g, race) {

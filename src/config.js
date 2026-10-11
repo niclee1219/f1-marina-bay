@@ -182,3 +182,13 @@ export const TRAFFIC = { minWidth: 7, circuitGap: 22, minPath: 60, spacing: 38, 
 // Car size in the free / broadcast / helicopter cameras: real size within `dist` metres of the
 // camera, then grown with distance (so a far car still shows) up to `max` times real size.
 export const CAR_ZOOM = { dist: 300, max: 3 };
+
+// Starting grid (src/data.js Race.buildGrid, src/track.js buildStart). OpenF1 car locations put
+// every grid car on the centreline, so the columns come from the regulations, anchored on the
+// recorded stop points: 8 m between successive positions (the 2025 race fits 7.9 m), odd
+// positions on the pole side. Pole is on the left at Marina Bay: the inside of the left-hand
+// Turn 1 and the pit-building side (the start photo in references/, shot from T1 back down the
+// grid, has the leading car of every pair on the garage side). column: centre of each column from the track centre (m). startAhead: start
+// line ahead of the pole car's centre. blend: distance (m) over which a car eases from its box
+// into its telemetry position as it pulls away (and back in as it arrives).
+export const GRID = { spacing: 8, column: 2.8, poleSide: 'left', boxFront: 3.0, startAhead: 9, blend: [1.5, 70], poleFallback: 84 };

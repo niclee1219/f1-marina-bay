@@ -1,5 +1,6 @@
 // Loads the pre-built race/city data and answers "what is happening at time t" queries.
 // Time t is seconds since race.t0 (grid, before the formation lap).
+import { GRID } from './config.js';
 
 export const TYRES = {
   SOFT: { c: '#ff2d2c', l: 'S' },
@@ -119,6 +120,54 @@ export class Race {
     }
     const tr = this.track;
     tr.n = tr.center.length;
+    this.grid = this.isRace ? this.buildGrid() : null;
+  }
+
+  // Grid slots in (arc length, lateral offset). The slot positions follow the regulation stagger
+  // from where the pole car actually stopped; each car's own recorded stop point is kept so the
+  // replay can ease it into its slot (see gridShift).
+  buildGrid() {
+    const L = this.curve.L, F = this.frames, U = this.framesU, nf = this.duration * this.hz | 0;
+    const t = this.race_start - 3, fi = Math.round(this.frameIndex(t));
+    const wrap = s => (s > L / 2 ? s - L : s);
+    const cars = [], anchors = [];
+    for (const d of this.drivers) {
+      const p = this.position(d.k, this.race_start), j = (d.k * nf + fi) * 4;
+      const on = (F[j + 3] >> 13) & 1;
+      const g = { k: d.k, p, sTel: on ? wrap(U[j] / 10) : null, dTel: on ? F[j + 1] / 100 : 0 };
+      if (on && F[j + 2] < 5) anchors.push(g.sTel + (p - 1) * GRID.spacing);
+      cars.push(g);
+    }
+    if (!anchors.length) return null;
+    anchors.sort((a, b) => a - b);
+    const sPole = anchors[anchors.length >> 1];
+    const left = GRID.poleSide === 'left' ? -1 : 1;   // +d is right of travel
+    for (const g of cars) {
+      g.sSlot = sPole - (g.p - 1) * GRID.spacing;
+      g.dSlot = (g.p % 2 ? left : -left) * GRID.column;
+    }
+    return {
+      sPole, cars, slots: cars.map(g => ({ p: g.p, s: g.sSlot, d: g.dSlot })).sort((a, b) => a.p - b.p),
+      from: this.race_start - 150, until: this.race_start + 60,
+    };
+  }
+
+  // Offset (ds, dd) that moves car k from its telemetry position into its grid box: full while it
+  // sits at its recorded stop point, fading out with the distance from it, so there is no jump
+  // as the car arrives from the formation lap or pulls away at the start.
+  gridShift(k, t, s) {
+    const G = this.grid;
+    if (!G || t < G.from || t > G.until) return null;
+    const g = G.cars[k];
+    if (g.sTel == null) return null;
+    const L = this.curve.L;
+    let ds = s - g.sTel;
+    ds -= Math.round(ds / L) * L;
+    const [a, b] = GRID.blend;
+    const x = Math.min(1, Math.max(0, (Math.abs(ds) - a) / (b - a)));
+    const w = 1 - x * x * (3 - 2 * x);
+    if (w <= 0) return null;
+    return [w * (g.sSlot - g.sTel), w * (g.dSlot - g.dTel)];
   }
 
   frameIndex(t) { return Math.max(0, Math.min(this.duration * this.hz - 1, t * this.hz)); }
@@ -147,7 +196,9 @@ export class Race {
       const dv = idx.map((j, m) => (on[m] ? F[j + 1] / 100 : null));
       if (sv[0] == null) { sv[0] = 2 * sv[1] - sv[2]; dv[0] = dv[1]; }
       if (sv[3] == null) { sv[3] = 2 * sv[2] - sv[1]; dv[3] = dv[2]; }
-      const s = cr(sv[0], sv[1], sv[2], sv[3]), d = cr(dv[0], dv[1], dv[2], dv[3]);
+      let s = cr(sv[0], sv[1], sv[2], sv[3]), d = cr(dv[0], dv[1], dv[2], dv[3]);
+      const gs = this.grid && this.gridShift(k, t, s);
+      if (gs) { s += gs[0]; d += gs[1]; }
       this.curve.at(s, C);
       out[0] = C.x + C.ty * d;
       out[1] = C.y - C.tx * d;
