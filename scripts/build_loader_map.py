@@ -1,6 +1,6 @@
 """Bake the loading-screen map: a small SVG of Marina Bay drawn while the 3D scene loads.
 
-Usage: python3 scripts/build_loader_map.py [--track data/2025-race/race.json]
+Usage: python3 scripts/build_loader_map.py [--track data/2026-race/race.json]
 
 Reads data/city.json (water, parks, roads, buildings) and the circuit centreline, and writes
 data/map.svg in scene coordinates (x east, y = -north, metres), the same frame the 3D camera uses,
@@ -16,7 +16,7 @@ import os
 HERE = os.path.dirname(__file__)
 ap = argparse.ArgumentParser()
 ap.add_argument("--city", default=os.path.join(HERE, "..", "data", "city.json"))
-ap.add_argument("--track", default=os.path.join(HERE, "..", "data", "2025-race", "race.json"))
+ap.add_argument("--track", default=os.path.join(HERE, "..", "data", "2026-race", "race.json"))
 ap.add_argument("--out", default=os.path.join(HERE, "..", "data", "map.svg"))
 ARGS = ap.parse_args()
 

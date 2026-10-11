@@ -113,13 +113,17 @@ const LOGOS = new Map();   // sponsor name -> loaded Image
 // loaded logo image for a sponsor name (after loadLogos), or undefined
 export const logoImage = name => LOGOS.get(name);
 
-// Preload every configured logo before the atlas is drawn. Resolves even when some fail.
+// marks used outside the board atlas, by key: the Singapore Airlines bird (src/sia.js)
+const EXTRA = { 'sia-bird': 'assets/logos/sia-bird.png' };
+
+// Preload every configured logo (and EXTRA) before the atlas is drawn. Resolves even when some fail.
 export async function loadLogos() {
-  await Promise.all(SPONSORS.filter(s => s.logo).map(s => new Promise(resolve => {
+  const files = [...SPONSORS.filter(s => s.logo).map(s => [s.name, `assets/logos/${s.logo}.svg`]), ...Object.entries(EXTRA)];
+  await Promise.all(files.map(([key, src]) => new Promise(resolve => {
     const img = new Image();
-    img.onload = () => { if (img.naturalWidth) LOGOS.set(s.name, img); resolve(); };
-    img.onerror = () => { console.warn(`sponsor logo missing: ${s.logo}.svg (using wordmark)`); resolve(); };
-    img.src = `assets/logos/${s.logo}.svg`;
+    img.onload = () => { if (img.naturalWidth) LOGOS.set(key, img); resolve(); };
+    img.onerror = () => { console.warn(`logo missing: ${src} (using fallback)`); resolve(); };
+    img.src = src;
   })));
   return [...LOGOS.keys()];
 }

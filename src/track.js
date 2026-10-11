@@ -1,11 +1,12 @@
 // Circuit geometry, sampled every ~2 m from the same smooth curve the cars are positioned on.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CROWD, HAZE, GRID, PIT_LANE, RUNOFF, TRUSS } from './config.js';
+import { CROWD, HAZE, GRID, PIT_LANE, RUNOFF, TRUSS, BANNERS, TRACK_HALF_WIDTH } from './config.js';
 import { PitLane, buildPitLane } from './pitlane.js';
-import { sponsorAtlas, boardTexture, titleSponsor, BOARD_UV_GLSL, logoImage } from './sponsors.js';
+import { sponsorAtlas, boardTexture, titleSponsor, BOARD_UV_GLSL } from './sponsors.js';
+import { drawSiaBanner } from './sia.js';
 
-const HALF = 7.0;           // half track width (m)
+const HALF = TRACK_HALF_WIDTH;   // half track width (m)
 const LIFT = 0.18;          // track surface above ground
 const WALL = HALF + 3.2;    // concrete wall offset
 export const MAX_ZONES = 12; // shade zones the asphalt shader evaluates
@@ -23,12 +24,16 @@ function canvasTex(w, h, draw, repeat = true) {
 }
 
 // Painted layers sit a few cm above the asphalt; polygon offset keeps them from flickering at range.
-function decal(mat) {
+function decal(mat, strength = 1) {
   mat.polygonOffset = true;
-  mat.polygonOffsetFactor = -2;
-  mat.polygonOffsetUnits = -4;
+  mat.polygonOffsetFactor = -2 * strength;
+  mat.polygonOffsetUnits = -4 * strength;
   return mat;
 }
+
+// Signs hang a few cm off a steel beam or wall: pull them toward the camera so they never z-fight
+// with the surface behind them (the gap alone is below depth precision from a distance).
+const signMat = (mat) => decal(mat, 3);
 
 // Material that tiles a different sponsor board every uv.x unit (cell hashed to a board).
 function boardWallMaterial(atlas, front = true) {
@@ -329,10 +334,10 @@ export class Track {
             return v;
           }`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-          float along = fract(vTrackUv.y / 32.0);
+          float along = fract(vTrackUv.y / ${TRUSS.every.toFixed(1)});
           float pa = (along - 0.5) * 3.2; float pool = exp(-pa * pa);   // (pow() of a negative base is NaN in GLSL)
-          float side = 1.0 - smoothstep(0.0, 1.0, abs(vTrackUv.x - 0.5) * 2.0) * 0.45;
-          totalEmissiveRadiance += vec3(0.085, 0.087, 0.095) * (0.85 + 0.9 * pool) * side;   // near-white under the trusses, as in the aerials
+          float side = 1.0 - smoothstep(0.0, 1.0, abs(vTrackUv.x - 0.5) * 2.0) * 0.25;
+          totalEmissiveRadiance += vec3(0.135, 0.137, 0.145) * (1.0 + 0.3 * pool) * side;   // near-white under the unbroken trusses, as in the aerials
           float px = (vTrackUv.x - 0.5) * 4.0; diffuseColor.rgb *= 1.0 - 0.2 * exp(-px * px);
           // bridge zones: the deck structure blocks part of the floodlighting
           float zs = zoneShade(vTrackUv.y);
@@ -348,7 +353,7 @@ export class Track {
       });
       t.wrapS = THREE.ClampToEdgeWrapping;
       if (flip) { t.repeat.x = -1; t.offset.x = 1; }
-      return new THREE.MeshStandardMaterial({ map: t, roughness: 0.85, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.07 });
+      return new THREE.MeshStandardMaterial({ map: t, roughness: 0.85, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.12 });
     };
     g.add(new THREE.Mesh(this.ribbon(HALF, this.wallLine(1), -0.03), verge(false)));
     g.add(new THREE.Mesh(this.ribbon(this.wallLine(-1), -HALF, -0.03), verge(true)));
@@ -379,7 +384,7 @@ export class Track {
     }
     g.add(new THREE.Mesh(mergeGeometries(kerbs), kerbMat));
 
-    // ---------- DRS zones: thin green line down the middle (2025 only)
+    // ---------- DRS zones: thin green line down the middle (hidden for sessions without DRS, such as 2026)
     const drsMat = decal(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.08, 0.8, 0.3), transparent: true, opacity: 0.55 }));
     this.drsMesh = new THREE.Mesh(mergeGeometries(this.drs.map(([a, b]) => this.ribbon(-0.18, 0.18, 0.03, a, b))), drsMat);
     this.drsMesh.visible = race.has_drs !== false;
@@ -420,6 +425,7 @@ export class Track {
     this.buildLights(g);
     this.buildBrakeBoards(g);
     this.buildStartGantries(g);
+    this.buildSiaGantries(g);
     this.buildGantries(g);
     this.buildStart(g, race);
     this.buildPit(g);
@@ -441,7 +447,7 @@ export class Track {
     const row = new THREE.Group(), w = h * 4;
     ids.forEach((id, j) => {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
-        new THREE.MeshBasicMaterial({ map: boardTexture(this.atlas, id), color: new THREE.Color(bright, bright, bright) }));
+        signMat(new THREE.MeshBasicMaterial({ map: boardTexture(this.atlas, id), color: new THREE.Color(bright, bright, bright) })));
       m.position.x = (j - (ids.length - 1) / 2) * w;
       row.add(m);
     });
@@ -482,12 +488,13 @@ export class Track {
   }
 
   buildLights(g) {
-    // Floodlight trusses every ~32 m, alternating sides, as along the Marina Bay circuit: a pole
-    // behind the wall, an arm over the barrier and a truss running along the track with a row of
-    // lamp heads (config TRUSS). None under the expressway decks (lit from the deck soffit, see
-    // viaducts.js); beside the pit lane they stand on the pit wall; none on the pit entry / exit.
+    // Floodlight trusses on both sides of the whole lap, end to end, as along the Marina Bay circuit:
+    // a pole behind the wall, an arm over the barrier and a truss running along the track with a row
+    // of lamp heads (config TRUSS). The two sides are staggered by half a truss so the poles don't
+    // pair up. None under the expressway decks (lit from the deck soffit, see viaducts.js); beside
+    // the pit lane they stand on the pit wall; none on the pit entry / exit.
     const T = TRUSS;
-    const items = this.every(T.every, [1]).map((it, k) => ({ i: it.i, o: (k % 2 ? 1 : -1) }))
+    const items = [...this.every(T.every, [1]), ...this.every(T.every, [-1], Math.round(T.every / 2 / this.bin))]
       .filter(it => !this.underDeck(it.i) && !this.pitGap(it.i, it.o))
       .map(it => ({ i: it.i, o: it.o * (this.inPitLane(it.i, it.o * (WALL + 1.3)) ? WALL + 0.45 : this.wallAt(it.i, it.o) + 1.3) }));
     const H = T.height, R = T.reach, half = T.length / 2;
@@ -506,11 +513,12 @@ export class Track {
     this.instances(g, 'poles', mergeGeometries(steel.map(x => x.toNonIndexed())), new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.6, roughness: 0.5 }), items);
     const heads = [];
     for (let k = 0; k < T.heads; k++) heads.push(new THREE.BoxGeometry(1.5, 0.3, 0.9).translate(-half + (k + 0.5) * T.length / T.heads, H - 0.55, R));
-    this.instances(g, 'heads', mergeGeometries(heads), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.15, 2.0) }), items);
-    // light shafts in the humid night air under each head: brightest at the lamp, fading to the
-    // ground and away near the camera (so onboard / chase views never flash through them)
+    this.instances(g, 'heads', mergeGeometries(heads), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.35, 1.32, 1.25) }), items);
+    // light shafts in the humid night air under each head: brightest at the lamp, fading out well
+    // above the ground (narrow, so they do not spread over the road) and away near the camera
+    // (so onboard / chase views never flash through them)
     if (HAZE.shafts > 0) {
-      const cone = mergeGeometries([-1, 1].map(x => new THREE.ConeGeometry(4.6, H - 0.6, 18, 1, true).translate(x * T.length / 4, (H - 0.6) / 2, R)));
+      const cone = mergeGeometries([-1, 1].map(x => new THREE.ConeGeometry(2.0, H - 0.6, 18, 1, true).translate(x * T.length / 4, (H - 0.6) / 2, R)));
       const shaftMat = new THREE.ShaderMaterial({
         uniforms: { c: { value: new THREE.Color(1.0, 0.95, 0.85).multiplyScalar(HAZE.shafts) } },
         vertexShader: `varying float vH; varying float vD;
@@ -522,7 +530,7 @@ export class Track {
           }`,
         fragmentShader: `uniform vec3 c; varying float vH; varying float vD;
           void main(){
-            float a = pow(clamp(vH, 0.0, 1.0), 1.6) * smoothstep(6.0, 40.0, vD) * (1.0 - smoothstep(900.0, 2500.0, vD));
+            float a = pow(clamp(vH, 0.0, 1.0), 2.4) * smoothstep(6.0, 40.0, vD) * (1.0 - smoothstep(900.0, 2500.0, vD));
             gl_FragColor = vec4(c * a, 1.0);
           }`,
         transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
@@ -570,19 +578,22 @@ export class Track {
     g.add(new THREE.Mesh(mergeGeometries(posts), new THREE.MeshStandardMaterial({ color: 0x8c929c })));
   }
 
-  // A banner gantry spanning the track at sample i. draw(ctx, w, h) paints the banner face.
-  bannerGantry(g, i, draw, height = 9) {
+  // A banner gantry spanning the track at sample i. draw(ctx, w, h) paints the banner face; gantries
+  // passing the same key share one texture.
+  bannerGantry(g, i, draw, height = 9, key = null) {
     const p = this.P[i], t = this.T[i], span = WALL * 2 + 3;
     const gr = new THREE.Group();
     const steel = new THREE.MeshStandardMaterial({ color: 0x23262d, metalness: 0.7, roughness: 0.4 });
     gr.add(new THREE.Mesh(new THREE.BoxGeometry(span, 3.4, 1.4).translate(0, height, 0), steel));
     for (const sgn of [-1, 1]) gr.add(new THREE.Mesh(new THREE.BoxGeometry(0.8, height + 1.7, 0.8).translate(sgn * (span / 2 - 0.4), (height + 1.7) / 2, 0), steel));
     // canvas in the banner's proportions, so lettering isn't squashed
-    const tex = canvasTex(Math.round(256 * (span - 2) / 3), 256, draw, false);
-    const mat = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.75, roughness: 0.6 });
+    this.bannerTex ||= new Map();
+    const tex = (key && this.bannerTex.get(key)) || canvasTex(Math.round(256 * (span - 2) / 3), 256, draw, false);
+    if (key) this.bannerTex.set(key, tex);
+    const mat = signMat(new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.75, roughness: 0.6 }));
     for (const face of [-1, 1]) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(span - 2, 3.0), mat);
-      m.position.set(0, height, face * 0.72);
+      m.position.set(0, height, face * 0.78);
       m.rotation.y = face > 0 ? 0 : Math.PI;
       gr.add(m);
     }
@@ -610,23 +621,32 @@ export class Track {
       c.font = wordFont;
       c.textAlign = 'left'; c.fillText(word, x0 + 2 * r + gap, cy - h * 0.04);
     }, 10);
-    // Singapore Airlines over the run to the line, logo recoloured white on navy
-    this.bannerGantry(g, at(-300), (c, w, h) => {
-      c.fillStyle = '#13265f'; c.fillRect(0, 0, w, h);
-      c.fillStyle = '#f6b221'; c.fillRect(0, h - 14, w, 14);
-      const img = logoImage('Singapore Airlines');
-      if (img) {
-        const ar = img.naturalWidth / img.naturalHeight, dh = h * 0.42, dw = Math.min(w * 0.8, dh * ar);
-        const t = document.createElement('canvas'); t.width = Math.ceil(dw); t.height = Math.ceil(dw / ar);
-        const tc = t.getContext('2d'); tc.drawImage(img, 0, 0, t.width, t.height);
-        tc.globalCompositeOperation = 'source-in'; tc.fillStyle = '#ffffff'; tc.fillRect(0, 0, t.width, t.height);
-        c.drawImage(t, (w - dw) / 2, (h - dw / ar) / 2 - 6, dw, dw / ar);
-      } else {
-        c.fillStyle = '#ffffff'; c.font = `700 ${Math.round(h * 0.4)}px "Titillium Web", sans-serif`;
-        c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('SINGAPORE AIRLINES', w / 2, h / 2);
-      }
-    }, 8.5);
+    // Singapore Airlines over the run to the line: white wordmark and the gold bird on navy
+    this.bannerGantry(g, at(-300), drawSiaBanner, 8.5, 'sia');
     this.specialGantries = [at(150), at(-300)];
+  }
+
+  // More title-sponsor banners over the track all round the lap, in the start-line style (config
+  // BANNERS): the Singapore Airlines wordmark and bird, on straight-ish track (so the span is square
+  // to the road), clear of the expressway decks, the run-off and the other gantries.
+  buildSiaGantries(g) {
+    const B = BANNERS, picks = [...(this.specialGantries || [])];
+    const far = (i, j, m) => Math.min(Math.abs(j - i), this.n - Math.abs(j - i)) * this.bin >= m;
+    const step = Math.round(B.every / this.bin), look = Math.round(B.flat / this.bin);
+    for (let i0 = Math.round(B.phase / this.bin); i0 < this.n; i0 += step) {
+      // the straightest sample within half a step either side of the nominal spot
+      let best = -1, bestC = Infinity;
+      for (let i = i0 - (step >> 1); i < i0 + (step >> 1); i++) {
+        const k = ((i % this.n) + this.n) % this.n;
+        let cmax = 0;
+        for (let j = -look; j <= look; j++) cmax = Math.max(cmax, Math.abs(this.curv[(k + j + this.n) % this.n]));
+        const clear = !this.underDeck(k, 25) && !this.runoff[1][k] && !this.runoff[-1][k] && picks.every(p => far(k, p, B.minGap));
+        if (clear && cmax < B.maxCurv && cmax < bestC) { best = k; bestC = cmax; }
+      }
+      if (best >= 0) picks.push(best);
+    }
+    for (const i of picks.slice((this.specialGantries || []).length)) this.bannerGantry(g, i, drawSiaBanner, 8.5, 'sia');
+    this.specialGantries = picks;
   }
 
   // Glowing paper lanterns (orange, white, red) strung behind the grandstand side of the pit
@@ -693,7 +713,7 @@ export class Track {
     });
     this.animated.push(dt => { ticker.offset.x = (ticker.offset.x + dt * 0.06) % 1; });
     const steel = new THREE.MeshStandardMaterial({ color: 0x2b2f38, metalness: 0.7, roughness: 0.4 });
-    const tickMat = new THREE.MeshBasicMaterial({ map: ticker, color: new THREE.Color(1.5, 1.5, 1.5) });
+    const tickMat = signMat(new THREE.MeshBasicMaterial({ map: ticker, color: new THREE.Color(1.5, 1.5, 1.5) }));
     picks.slice(0, 8).forEach((i, k) => {
       const p = this.P[i], t = this.T[i];
       const gr = new THREE.Group();
@@ -709,10 +729,10 @@ export class Track {
       const banner = this.boardRow([k * 2 + 1, k * 2 + 2], 1.7);
       for (const face of [-1, 1]) {
         const ban = banner.clone();
-        ban.position.set(-span * 0.17, 8.5, face * 0.81);
+        ban.position.set(-span * 0.17, 8.5, face * 0.86);
         ban.rotation.y = face > 0 ? 0 : Math.PI;
         const led = new THREE.Mesh(new THREE.PlaneGeometry(span * 0.32, 1.5), tickMat);
-        led.position.set(span * 0.32, 8.5, face * 0.81);
+        led.position.set(span * 0.32, 8.5, face * 0.86);
         led.rotation.y = face > 0 ? 0 : Math.PI;
         gr.add(ban, led);
       }
@@ -815,15 +835,15 @@ export class Track {
     }, false);
     // race name in the middle, title partner boards either side
     const signM = new THREE.Mesh(new THREE.PlaneGeometry(10.8, 1.3),
-      new THREE.MeshBasicMaterial({ map: sign, color: new THREE.Color(1.4, 1.4, 1.4) }));
+      signMat(new THREE.MeshBasicMaterial({ map: sign, color: new THREE.Color(1.4, 1.4, 1.4) })));
     const title = titleSponsor();
     for (const face of [-1, 1]) {
       const m = signM.clone();
-      m.position.set(0, 7.5, face * 0.62); m.rotation.y = face > 0 ? 0 : Math.PI;
+      m.position.set(0, 7.5, face * 0.68); m.rotation.y = face > 0 ? 0 : Math.PI;
       gantry.add(m);
       for (const sx of [-1, 1]) {
         const b = this.boardRow([title], 1.3);
-        b.position.set(sx * 8.1, 7.5, face * 0.62); b.rotation.y = face > 0 ? 0 : Math.PI;
+        b.position.set(sx * 8.1, 7.5, face * 0.68); b.rotation.y = face > 0 ? 0 : Math.PI;
         gantry.add(b);
       }
     }

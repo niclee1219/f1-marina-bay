@@ -1,12 +1,14 @@
 // Singapore identity around the circuit:
-//  - the Turn 1-3 run-off (config RUNOFF) painted in the Marina Bay scheme: deep blue with white and
-//    gold stripes sweeping with the corner and a plain-text SINGAPORE wordmark (no logos);
+//  - the Turn 1-3 and last-corner run-off (config RUNOFF) painted in the Marina Bay scheme: deep blue
+//    with white and gold stripes sweeping with the corner, and the Singapore Airlines wordmark and
+//    bird (src/sia.js), as in the race-night photos;
 //  - corner number boards before each apex, DRS detection and activation boards (DRS cars only);
 //  - marshal posts at MultiViewer's 16 marshal light positions (scripts/fit_marshal_posts.py), whose
 //    light panels show the flag state of their marshal sector (Race.marshalState).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RUNOFF, DRS_BOARDS } from './config.js';
+import { siaRunoffArt } from './sia.js';
 
 function canvasTex(w, h, draw) {
   const c = document.createElement('canvas');
@@ -31,6 +33,17 @@ const BANDS = [
   [0, 3, '#1d2c8c'], [3, 4.2, '#f2f2f2'], [4.2, 5.6, '#e8b923'], [5.6, 5.9, '#f07a1a'], [5.9, 11, '#1d2c8c'],
   [11, 11.6, '#f2f2f2'], [11.6, 13, '#e8b923'], [13, 24, '#1f3194'], [24, 25, '#f2f2f2'], [25, 32, '#1d2c8c'],
 ];
+
+// a word in white italic capitals on a transparent canvas, for paintArt
+function textArt(word) {
+  const c = document.createElement('canvas');
+  c.width = 160 * word.length; c.height = 200;
+  const x = c.getContext('2d');
+  x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.font = 'italic 900 190px "Titillium Web", sans-serif';
+  [...word].forEach((L, i) => x.fillText(L, 160 * (i + 0.5), c.height / 2 + 8));
+  return c;
+}
 
 export class Identity {
   constructor(track, race, g) {
@@ -68,51 +81,48 @@ export class Identity {
     if (!geos.length) return;
     this.group.add(new THREE.Mesh(mergeGeometries(geos), decal(new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.16, roughness: 0.8 }))));
     // wordmark where the run-off is widest, reading for spectators behind the wall
-    for (const z of tr.runoffZones) if (z.word) this.paintWord(z);
+    for (const z of tr.runoffZones) if (z.art || z.word) this.paintArt(z);
   }
 
-  paintWord(z) {
-    const tr = this.track, word = z.word, n = word.length;
-    const atlas = canvasTex(160 * n, 200, (x, w, h) => {
-      x.clearRect(0, 0, w, h);
-      x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.font = 'italic 900 190px "Titillium Web", sans-serif';
-      [...word].forEach((L, i) => x.fillText(L, 160 * (i + 0.5), h / 2 + 8));
-    });
-    // the stretch where the run-off is at full width
+  // Artwork painted flat on the run-off (z.art 'sia': the Singapore Airlines wordmark and bird, else
+  // the text z.word), across artFrom..artFrom + artDepth metres from the inner edge of the paint,
+  // centred on the stretch where the run-off is at full width. Its top faces the track, so it reads
+  // left to right for spectators behind the wall and from the air. Laid as thin slices, each placed
+  // by distance along its own offset line, so the artwork keeps its proportions round the bend.
+  paintArt(z) {
+    const tr = this.track;
+    const art = z.art === 'sia' ? siaRunoffArt() : textArt(z.word);
+    const tex = new THREE.CanvasTexture(art);
+    tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
     let best = -1, run = 0, bestRun = 0, start = 0;
     for (let i = z.i0; i <= z.i1; i++) {
       const full = tr.runoff[z.side > 0 ? 1 : -1][((i % tr.n) + tr.n) % tr.n] >= z.width * 0.95;
       if (full) { if (!run) start = i; run++; if (run > bestRun) { bestRun = run; best = start; } } else run = 0;
     }
     if (best < 0) return;
-    const sMid = (best + bestRun / 2) * tr.bin, pitch = 6.2, lw = 5.4, depth = 8;
-    const edge = tr.half + 1.6 + 14;   // letters across 14..22 m from the inner edge of the paint
-    const geos = [];
-    // even spacing along the line the letters sit on (on the outside of a bend it is longer than
-    // the centreline): cumulative distance along that offset line, then look up s for each letter
-    const iMid = Math.round(sMid / tr.bin), span = Math.round((n * pitch * 1.6) / tr.bin);
+    const depth = z.artDepth, len = depth * art.width / art.height;
+    const edge = tr.half + 1.6 + z.artFrom, line = z.side * (edge + depth / 2);
+    // cumulative distance along the offset line the artwork is centred on, then s for any distance
+    const iMid = Math.round(best + bestRun / 2), span = Math.round(len * 1.5 / tr.bin) + 4;
     const ss = [], dd = [0];
     for (let i = iMid - span; i <= iMid + span; i++) {
       ss.push(i * tr.bin);
-      if (ss.length > 1) dd.push(dd[dd.length - 1] + tr.at(i, z.side * (edge + depth / 2)).distanceTo(tr.at(i - 1, z.side * (edge + depth / 2))));
+      if (ss.length > 1) dd.push(dd[dd.length - 1] + tr.at(i, line).distanceTo(tr.at(i - 1, line)));
     }
     const dMid = dd[span];
     const sAt = d => { let j = 1; while (j < dd.length - 1 && dd[j] < d) j++; const f = (d - dd[j - 1]) / ((dd[j] - dd[j - 1]) || 1); return ss[j - 1] + (ss[j] - ss[j - 1]) * f; };
-    [...word].forEach((_, k) => {
-      // reading left to right for someone behind the wall facing the track
-      const s = sAt(dMid + (k - (n - 1) / 2) * pitch * (z.side > 0 ? 1 : -1));
-      const q = tr.paintQuad(s, z.side * edge, z.side * (edge + depth), -lw / 2, lw / 2, [0, 0, 1, 1], 0.05);
-      // uv: u along the track (letter width), v across toward the track (letter up)
-      const uv = q.attributes.uv;
-      // vertices: (lx0,lz0) (lx1,lz0) (lx0,lz1) (lx1,lz1); lx0 is the track side
-      const u0 = k / n, u1 = (k + 1) / n;
-      const flip = z.side > 0;
-      uv.setXY(0, flip ? u0 : u1, 1); uv.setXY(1, flip ? u0 : u1, 0);
-      uv.setXY(2, flip ? u1 : u0, 1); uv.setXY(3, flip ? u1 : u0, 0);
+    const N = Math.ceil(len / 1.5), sl = len / N, geos = [];
+    for (let j = 0; j < N; j++) {
+      // the artwork's left end comes first along s on the right of travel, last on the left
+      const d = z.side > 0 ? dMid - len / 2 + (j + 0.5) * sl : dMid + len / 2 - (j + 0.5) * sl;
+      const q = tr.paintQuad(sAt(d), z.side * edge, z.side * (edge + depth), -sl * 0.51, sl * 0.51, [0, 0, 1, 1], 0.05);
+      // vertices: (lx0,lz0) (lx1,lz0) (lx0,lz1) (lx1,lz1); lx0 is the track side (artwork top)
+      const u0 = j / N, u1 = (j + 1) / N, uv = q.attributes.uv, fwd = z.side > 0;
+      uv.setXY(0, fwd ? u0 : u1, 1); uv.setXY(1, fwd ? u0 : u1, 0);
+      uv.setXY(2, fwd ? u1 : u0, 1); uv.setXY(3, fwd ? u1 : u0, 0);
       geos.push(q);
-    });
-    this.group.add(new THREE.Mesh(mergeGeometries(geos), decal(new THREE.MeshBasicMaterial({ map: atlas, transparent: true, depthWrite: false, color: new THREE.Color(0.86, 0.86, 0.88) }))));
+    }
+    this.group.add(new THREE.Mesh(mergeGeometries(geos), decal(new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, color: new THREE.Color(0.9, 0.9, 0.9) }))));
   }
 
   // ---------------------------------------------------------------- boards

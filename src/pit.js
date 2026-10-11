@@ -48,12 +48,12 @@ function inRing(p, x, y) {
   return inside;
 }
 
-// The rooftop SINGAPORE letters (aerial night photo, references/): one extruded letter per roof bay,
-// standing on the roof facing the track and leaning back toward the paddock, white faces on red
-// returns. The word runs along the roof and reads left to right from the grandstands across the
+// The rooftop SINGAPORE letters (aerial night photo, references/): one letter per roof bay, lying
+// flat on the roof (no tilt), raised a little on red returns, with the white faces up. The word runs along the roof and reads left to right from the grandstands across the
 // track, and from the overhead TV shot. The glyphs are a 9-letter subset of three.js's Helvetiker
 // Bold (assets/fonts/roof-letters.json), loaded after the scene is up; two merged meshes.
-const LEAN = THREE.MathUtils.degToRad(68);   // from vertical, top toward the paddock: low from the pit lane
+const LEAN = THREE.MathUtils.degToRad(90);   // from vertical: flat on the roof, the letter's top toward the paddock
+const DEPTH = 0.6;                           // raised this far off the roof on its red return
 function buildRoofLetters(g, L, word, o) {
   Promise.all([import('three/addons/loaders/FontLoader.js'), import('three/addons/geometries/TextGeometry.js'), fetch('assets/fonts/roof-letters.json').then(r => r.json())])
     .then(([{ Font }, { TextGeometry }, json]) => {
@@ -65,10 +65,10 @@ function buildRoofLetters(g, L, word, o) {
       const along = L.point(mid + 5, 0).sub(L.point(mid - 5, 0));
       const forward = right.crossVectors(facing(mid), THREE.Object3D.DEFAULT_UP).dot(along) > 0;
       [...word].forEach((ch, k) => {
-        const geo = new TextGeometry(ch, { font, size: o.size, depth: 1.4, curveSegments: 5, bevelEnabled: false });
+        const geo = new TextGeometry(ch, { font, size: o.size, depth: DEPTH, curveSegments: 5, bevelEnabled: false });
         geo.computeBoundingBox();
         const bb = geo.boundingBox;
-        geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -1.4);   // base centre, face at z = 0
+        geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -DEPTH);   // base centre, face at z = 0
         const i = forward ? k : word.length - 1 - k;
         const u = o.at(i);
         facing(u);                                                     // track -> paddock
@@ -237,7 +237,7 @@ export function buildPitComplex(g, city, race, track) {
   });
   bandTex.wrapS = THREE.RepeatWrapping;
   const band = laneSign(L, u0, u1, G - 1.65, H0 + 0.35, H0 + 2.7, [0, 0, (u1 - u0) / 13, 1]);
-  g.add(new THREE.Mesh(band, new THREE.MeshStandardMaterial({ map: bandTex, emissiveMap: bandTex, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.6, side: THREE.DoubleSide })));
+  g.add(new THREE.Mesh(band, new THREE.MeshStandardMaterial({ map: bandTex, emissiveMap: bandTex, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -12 })));
   box(u0, u1, G - 1.6, G - 1.3, H0 + 0.3, H0 + 2.75, dark);
 
   // ---- podium, cantilevered over the pit lane mid-building
@@ -285,7 +285,7 @@ export function buildPitComplex(g, city, race, track) {
     pieces.push(tilted(a, b, L.side < 0 ? [f0, 0, f1, 1] : [1 - f1, 0, 1 - f0, 1], 0.1));
   }
   g.add(new THREE.Mesh(mergeGeometries(pieces),
-    new THREE.MeshBasicMaterial({ map: signTex, alphaTest: 0.5, color: C(0.82, 0.82, 0.84), side: THREE.DoubleSide })));
+    new THREE.MeshBasicMaterial({ map: signTex, alphaTest: 0.5, color: C(0.82, 0.82, 0.84), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -12 })));
 
   // ---- race control at the pit exit end of the building (glass box on the roof, antenna)
   const rcBack = Math.min(24, depth(u1 - 12) - 2);
@@ -348,7 +348,7 @@ export function buildPitComplex(g, city, race, track) {
   }
   buildRoofLetters(g, L, letters, {
     at: i => u0 + margin + (i + 0.5) * bay,
-    w: u => G + 0.14 * dRoof(u), h: HR + 0.1,
+    w: u => G + 0.14 * dRoof(u), h: HR + 0.1 + DEPTH,
     size: Math.min(0.8 * bay, 0.72 * K.depth, 20),
   });
 

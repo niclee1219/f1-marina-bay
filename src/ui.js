@@ -39,7 +39,7 @@ export class UI {
     this.buildTimeline();
     this.buildControls();
     this.buildMinimap();
-    const s = race.session || { name: 'Race', date: '2025-10-05' };
+    const s = race.session || { name: 'Race', date: '2026-10-11' };
     const date = new Date(`${s.date}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
     $('#ev-title').innerHTML = `<span class="ev-word">${TITLE.word}</span><span class="ev-gp">${TITLE.sub}</span>`;
     $('#ev-title').setAttribute('aria-label', `${TITLE.word} ${TITLE.sub}`);

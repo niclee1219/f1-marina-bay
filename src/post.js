@@ -16,8 +16,8 @@ import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { QUALITY } from './quality.js';
 
 export const POST = {
-  high: { samples: 2, fxaa: false, bloom: [0.7, 0.5, 0.9] },   // 4x cost ~3.5 ms more on an M1 Pro
-  low: { samples: 0, fxaa: true, bloom: [0.55, 0.4, 0.92] },
+  high: { samples: 2, fxaa: false, bloom: [0.5, 0.35, 0.95] },   // 4x cost ~3.5 ms more on an M1 Pro
+  low: { samples: 0, fxaa: true, bloom: [0.4, 0.3, 0.96] },
   grade: { vignette: 0.22, saturation: 1.06, shadows: [0.97, 1.0, 1.05], highlights: [1.04, 1.0, 0.95] },
 };
 

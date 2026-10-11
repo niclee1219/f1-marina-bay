@@ -1,6 +1,6 @@
 // Loads the pre-built race/city data and answers "what is happening at time t" queries.
 // Time t is seconds since race.t0 (grid, before the formation lap).
-import { GRID, PIT_LANE } from './config.js';
+import { GRID, PIT_LANE, LATERAL, TRACK_HALF_WIDTH } from './config.js';
 
 export const TYRES = {
   SOFT: { c: '#ff2d2c', l: 'S' },
@@ -56,6 +56,17 @@ export class TrackCurve {
     out.e = this.E[i] + (this.E[(i + 1) % n] - this.E[i]) * u;
     return out;
   }
+}
+
+// Monotone cubic (Fritsch-Carlson) through four equally spaced samples, evaluated between the
+// middle two at u in [0, 1]. A segment that is flat or turns round at a sample gets zero slope
+// there, so the curve cannot overshoot the data the way Catmull-Rom does.
+function pchip(y0, y1, y2, y3, u) {
+  const a = y1 - y0, b = y2 - y1, c = y3 - y2;
+  const m1 = a * b > 0 ? 2 * a * b / (a + b) : 0;
+  const m2 = b * c > 0 ? 2 * b * c / (b + c) : 0;
+  const u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * y1 + (u3 - 2 * u2 + u) * m1 + (-2 * u3 + 3 * u2) * y2 + (u3 - u2) * m2;
 }
 
 // last index i with arr[i][0] <= t (arr sorted by [0]); -1 if none
@@ -256,10 +267,13 @@ export class Race {
 
   frameIndex(t) { return Math.max(0, Math.min(this.duration * this.hz - 1, t * this.hz)); }
 
-  // Interpolated position into out: [x east, y north, elevation (NaN off track), on-track 0/1].
+  // Interpolated position into out: [x east, y north, elevation (NaN off track), on-track 0/1,
+  // s arc length, d lateral offset (+ = right of travel) as recorded, before dExtra].
   // On-track frames hold (arc length, lateral offset) and are interpolated along the curve,
-  // so cars follow the circuit smoothly between the 4 Hz samples.
-  pos(k, t, out) {
+  // so cars follow the circuit smoothly between the 4 Hz samples. s and d use a monotone cubic
+  // (no overshoot between samples, so s never runs backwards and d never swings past the data).
+  // dExtra: lateral push from the separation pass (cars.js), added to d on the track.
+  pos(k, t, out, dExtra = 0) {
     const F = this.frames, U = this.framesU, nf = this.duration * this.hz | 0, base = k * nf * 4;
     const f = this.frameIndex(t);
     const i = Math.floor(f), u = f - i;
@@ -280,9 +294,16 @@ export class Race {
       const dv = idx.map((j, m) => (on[m] ? F[j + 1] / 100 : null));
       if (sv[0] == null) { sv[0] = 2 * sv[1] - sv[2]; dv[0] = dv[1]; }
       if (sv[3] == null) { sv[3] = 2 * sv[2] - sv[1]; dv[3] = dv[2]; }
-      let s = cr(sv[0], sv[1], sv[2], sv[3]), d = cr(dv[0], dv[1], dv[2], dv[3]);
+      let s = pchip(sv[0], sv[1], sv[2], sv[3], u), d = pchip(dv[0], dv[1], dv[2], dv[3], u);
       const gs = this.grid && this.gridShift(k, t, s);
       if (gs) { s += gs[0]; d += gs[1]; }
+      out[4] = ((s % L) + L) % L; out[5] = d;
+      if (dExtra) {
+        // stay on the tarmac (half a car in from the edge) unless the data itself is further out
+        // (pit entry and exit), where the recorded offset wins
+        const lim = Math.max(TRACK_HALF_WIDTH - LATERAL.carWidth / 2, Math.abs(d));
+        d = Math.max(-lim, Math.min(lim, d + dExtra));
+      }
       this.curve.at(s, C);
       out[0] = C.x + C.ty * d;
       out[1] = C.y - C.tx * d;
@@ -307,6 +328,7 @@ export class Race {
     out[1] = cr(q[0][1], q[1][1], q[2][1], q[3][1]);
     out[2] = NaN;
     out[3] = 0;
+    out[4] = out[5] = 0;
     if (this.pitLane) this.pitShift(k, t, out);
     return out;
   }

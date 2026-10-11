@@ -94,6 +94,26 @@ export const LANDMARKS = {
     { key: 'orqN', match: 'One Raffles Quay North Tower', h: 245, style: 'crown' },
     { key: 'orqS', match: 'One Raffles Quay South Tower', h: 140, style: 'crown' },
   ],
+  // Bay-front towers beside the circuit (Marina Square / Millenia / Suntec). OSM has several of
+  // them with wrong heights or missing, so they are hidden and rebuilt in skyline.js. `match` is
+  // the OSM name, `at` [x, y, radius] picks an unnamed footprint by its centre; towers with no
+  // footprint (`pos`) are simply added. Heights in metres.
+  towers: [
+    { key: 'millenia', match: 'Millenia Tower', h: 220, style: 'millenia' },
+    { key: 'centennial', match: 'Centennial Tower', h: 158, style: 'centennial' },
+    // no OSM footprint: placed east of Millenia Tower, clear of Raffles Boulevard (the circuit)
+    { key: 'ritz', pos: [280, 286], rot: 0.55, h: 128, style: 'ritz' },
+    { key: 'panpacific', pos: [58, 214], rot: 0.35, h: 152, style: 'panpacific' },
+    { key: 'mandarin', match: 'Mandarin Oriental Hotel', h: 92, style: 'mandarin' },
+    { key: 'parkroyal', at: [-32, 252, 25], h: 88, style: 'parkroyal' },
+    { key: 'suntec1', match: 'Suntec Tower 1', h: 150, style: 'suntec' },
+    { key: 'suntec2', match: 'Suntec Tower 2', h: 152, style: 'suntec' },
+    { key: 'suntec3', match: 'Suntec Tower 3', h: 156, style: 'suntec' },
+    { key: 'suntec4', match: 'Suntec Tower 4', h: 154, style: 'suntec' },
+    { key: 'suntec5', match: 'Suntec Tower 5', h: 72, style: 'suntec' },
+  ],
+  // Civilian War Memorial ("The Chopsticks"), War Memorial Park; 4 leaning pillars, 68 m
+  warMemorial: { pos: [-465, 322], rot: 0.5, h: 68 },
   // the F1 pit building footprint is replaced by the pit complex in pit.js
   pit: { replaces: [/^F1 Pit Building$/] },
   // hidden extrusions that sit under the hand-built Padang / CBD models
@@ -137,7 +157,7 @@ export const NIGHT = { lift: 0.035 };
 // Race-night atmosphere: humid haze that the floodlights and the city glow light up.
 // fog: colour / density of the scene fog; shafts: brightness of the light shafts under the track
 // floodlights (0 = off).
-export const HAZE = { fogColor: 0x131528, fogDensity: 0.00034, shafts: 0.05 };
+export const HAZE = { fogColor: 0x131528, fogDensity: 0.00034, shafts: 0.02 };
 
 // Cameras. onboard.shake scales the cockpit vibration (1 = strong shake; 0 = none);
 // onboard.smoothing is how fast the cockpit view follows the car's heading / height (per second;
@@ -145,7 +165,9 @@ export const HAZE = { fogColor: 0x131528, fogDensity: 0.00034, shafts: 0.05 };
 // cornering (rad); nod: how far the view dips under braking (m at 30 m ahead). free: the free camera's depth range (near grows with distance to the orbit target but
 // never beyond `nearHeightShare` of the camera's height above ground, so close decks aren't clipped).
 export const CAMERA = {
-  onboard: { shake: 0.18, look: 0.06, smoothing: 7, maxYawRate: 2.4, eye: 0.74, lean: 0.03, nod: 1.2 },
+  // pitch: the driver's view tilts down this much (rad) while the cockpit rides up with it, so the
+  // steering wheel clears the dock along the bottom of the screen
+  onboard: { shake: 0.18, look: 0.06, smoothing: 7, maxYawRate: 2.4, eye: 0.74, lean: 0.03, nod: 1.2, pitch: 0.12 },
   free: { nearPerMetre: 0.004, nearHeightShare: 0.35, nearMin: 0.3, nearMax: 12, far: 20000 },
 };
 
@@ -173,7 +195,7 @@ export const CAR_ZOOM = { dist: 300, max: 3 };
 
 // Starting grid (src/data.js Race.buildGrid, src/track.js buildStart). OpenF1 car locations put
 // every grid car on the centreline, so the columns come from the regulations, anchored on the
-// recorded stop points: 8 m between successive positions (the 2025 race fits 7.9 m), odd
+// recorded stop points: 8 m between successive positions (the 2026 race fits about 8 m), odd
 // positions on the pole side. Pole is on the left at Marina Bay: the inside of the left-hand
 // Turn 1 and the pit-building side (the start photo in references/, shot from T1 back down the
 // grid, has the leading car of every pair on the garage side). column: centre of each column from the track centre (m). startAhead: start
@@ -209,20 +231,55 @@ export const PADDOCK = {
 };
 
 // Run-off where the wall stands further back (track.js initRunoff): on the outside of the Turn 1-3
-// complex (outside of T1 and T3 is the right of travel, +1), measured against the
-// corner apexes; the area is painted in the Singapore blue and gold scheme (identity.js). Widths are
-// read off the reference photos, not measured.
+// complex and of the last corner (the outside of T1, T3 and T19 is the right of travel, +1),
+// measured against the corner apexes; the area is painted in the Singapore blue and gold scheme
+// with the Singapore Airlines artwork (identity.js) across artFrom..artFrom + artDepth metres from
+// the inner edge of the paint. Widths are read off the reference photos, not measured.
 export const RUNOFF = {
   zones: [
-    { from: 1, to: 3, before: -70, after: 25, side: 1, width: 24, taper: 35, paint: true, word: 'SINGAPORE' },
+    { from: 1, to: 3, before: -70, after: 25, side: 1, width: 24, taper: 35, paint: true, art: 'sia', artFrom: 14.5, artDepth: 7 },
+    { from: 19, to: 19, before: -45, after: 12, side: 1, width: 13, taper: 30, paint: true, art: 'sia', artFrom: 6.1, artDepth: 4.6 },
   ],
 };
 
-// Floodlight trusses lining the circuit (track.js buildLights): spacing, truss length along the
-// track, height and reach over the barrier, lamp heads per truss.
-export const TRUSS = { every: 32, length: 22, height: 11, reach: 5.2, heads: 7 };
+// Floodlight trusses lining the circuit (track.js buildLights): on both sides, end to end, so the
+// lamps run as one unbroken line as in the aerials. every: spacing, length: truss length along the
+// track (every - length = the gap between trusses), height and reach over the barrier, lamp heads
+// per truss.
+export const TRUSS = { every: 24, length: 22.5, height: 11, reach: 5.2, heads: 8 };
+
+// Singapore Airlines banner gantries over the track round the lap (track.js
+// buildSiaGantries), in the start-line style: one roughly every `every` metres from `phase`, at the
+// straightest spot nearby (curvature below maxCurv over +-flat metres), at least minGap from any
+// other banner gantry.
+export const BANNERS = { every: 420, phase: 250, flat: 20, maxCurv: 0.006, minGap: 260 };
 
 // DRS boards (identity.js): activation where cars opened DRS; detection is not in OpenF1, so it is
 // placed this many metres before the last corner ahead of each zone (a guess). side: +1 = right of
 // travel, flipped where the pit lane is.
 export const DRS_BOARDS = { side: 1, detectBefore: 60 };
+
+// Half the track width (m): the asphalt, and the limit cars are kept inside (track.js, data.js).
+export const TRACK_HALF_WIDTH = 7.0;
+
+// Lateral behaviour of cars (cars.js, lateral.js). The telemetry (OpenF1 location, ~4 Hz) holds
+// each car's lateral offset d, but rival cars are almost always recorded on the same line, even in
+// a pass, so the replay separates cars that overlap.
+//   carWidth / carLength: the model's dimensions (m), the track limit is half the width in from the edge
+//   overlapS / gapD: two cars closer than overlapS along the track and gapD across it get pushed apart
+//     (the model is 2.02 m wide, so centres 2.0 m apart would touch; 2.3 leaves a car-width-ish daylight gap)
+//   leanMin: smallest recorded lateral difference (m) that is trusted to say which side a car is on
+//   ease: settling time of the sideways move (s of replay time), critically damped, so no snapping
+//   minKph: below this a car counts as stationary (grid, pit box) and is left alone
+//   maxYaw: most a car may point away from the track direction (rad) while on the track
+export const LATERAL = { carWidth: 2.0, carLength: 5.6, overlapS: 5.5, gapD: 2.3, leanMin: 0.15, ease: 0.5, minKph: 20, maxYaw: 5 * Math.PI / 180 };
+
+// Steering derived from the rendered path (cars.js), not from telemetry (there is no steering
+// channel): curvature -> road wheel angle (bicycle model) -> steering wheel angle.
+//   wheelbase (m), ratio: steering wheel degrees per road wheel degree, maxRoad: mechanical
+//   limit of the road wheels (rad), window: half-width (s) of the chord pair the heading change
+//   is measured over (about 0.1 s of smoothing, centred on the car so it stays in phase),
+//   holdKph: below this the heading from position is unreliable and the angle eases to zero
+//   ease: time constant (s) the wheel follows the path curvature (filters the 4 Hz sampling noise),
+//   maxWheel: hard stop of the steering wheel (rad), so no glitch can spin it past ~190 degrees
+export const STEERING = { wheelbase: 3.6, ratio: 9, maxRoad: 0.35, window: 0.1, holdKph: 5, ease: 0.09, maxWheel: 3.3 };

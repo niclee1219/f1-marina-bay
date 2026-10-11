@@ -22,6 +22,7 @@ import { elevatedRoadKeys } from './viaducts.js';
 import { AutoDirector } from './autodirector.js';
 import { Director, MODES } from './camera.js';
 import { Cockpit } from './cockpit.js';
+import { LateralView } from './lateralview.js';
 import { CAMERA, HAZE } from './config.js';
 import { UI } from './ui.js';
 
@@ -75,7 +76,7 @@ async function boot() {
   scene.add(wash);
 
   buildSky(scene);
-  const { beacons, update: updateCity, heightAt, domes } = buildCity(scene, city, hiddenBuilding);
+  const { beacons, update: updateCity, heightAt, domes, arches } = buildCity(scene, city, hiddenBuilding, race.curve);
   await step(0.82);
   const skyline = buildSkyline(scene, city, domes);
   const water = buildWater(scene, city, renderer);
@@ -84,7 +85,13 @@ async function boot() {
   track.pitFootprint = (city.buildings.find(b => b.n === 'F1 Pit Building') || {}).p;
   track.cameraRef = camera;   // lantern glow cards face the camera
   const viaducts = new Viaducts(city, track, race);
-  const bridges = new Bridges(track, viaducts.zones);   // sets the shade zones before the asphalt material compiles
+  // where the circuit runs under a building (world.js carveRoute) it is a shade zone like a viaduct:
+  // cars and asphalt darken, and no floodlight trusses stand inside
+  const archZones = arches.map((a, k) => ({
+    key: `arch${k}`, name: a.name, overhead: true, feather: 4, shade: 0.7, s0: a.s0, s1: a.s1,
+    i0: Math.floor(a.s0 / track.bin), i1: Math.ceil(a.s1 / track.bin),
+  }));
+  const bridges = new Bridges(track, [...viaducts.zones, ...archZones]);   // sets the shade zones before the asphalt material compiles
   track.build(scene, race);
   bridges.build(scene);
   viaducts.build(scene);
@@ -95,6 +102,7 @@ async function boot() {
   const crew = new PitCrew(scene, race, track);
   const identity = new Identity(track, race, track.group);
   const cars = new Cars(scene, race, track, bridges);
+  const lateralView = new LateralView(scene, track, cars);   // D: where the telemetry puts cars vs where they are drawn
   const crowd = new Crowd(scene, track, race, pit.decks);
   const streets = new Streets(scene, city, track, elevatedRoadKeys(city));
   const traffic = new Traffic(scene, city, track, streets);
@@ -194,7 +202,7 @@ async function boot() {
   const autoDir = new AutoDirector(race, director, cars.cars, k => { state.focusK = k; });
   director.setMode('orbit', 0);
   ui.setCamera('orbit');
-  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, crew, identity, skyline, composer, streets, traffic };
+  if (location.search.includes('debug')) window.__f1 = { lateralView, scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, crew, identity, skyline, composer, streets, traffic };
   ui.setPlaying(state.playing);
   ui.setSpeed(1);
 
@@ -211,6 +219,7 @@ async function boot() {
       state.focusK = order[j].k;
     } else if (/^[1-6]$/.test(e.key)) setCamera(MODES[+e.key - 1]);
     else if (e.key === 'h' || e.key === 'H') ui.toggleClean();
+    else if (e.key === 'd' || e.key === 'D') lateralView.toggle();
     else if (e.key === 'f' || e.key === 'F') director.follow = !director.follow;
   });
 
@@ -234,6 +243,7 @@ async function boot() {
     state.opts.pixelScale = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     cars.update(t, state.playing ? dt * state.speed : 0, camera.position, state.focusK, state.opts);
     state.opts.jumped = false;
+    lateralView.update(race);
     // simDt: replay time this frame, so the onboard spring keeps up with the car at 5x-60x
     director.update(dt, cars.cars[state.focusK], state.playing, state.playing ? dt * state.speed : dt);
     // the cockpit replaces the focused car's body once the camera has settled into the onboard view
@@ -244,7 +254,7 @@ async function boot() {
     autoDir.update(dt, t, state.playing ? state.speed : 1);
     if (cockpit.root.visible) {
       cockpit.setTeam(race.drivers[state.focusK].color);
-      cockpit.update(dt, state.playing ? dt * state.speed : 0, cars.cars[state.focusK].tel, director.yawRate || 0, director.lookYaw || 0);
+      cockpit.update(dt, state.playing ? dt * state.speed : 0, cars.cars[state.focusK].tel, cars.cars[state.focusK].steer, director.lookYaw || 0);
       cockpit.renderMirrors(renderer, scene);
     }
 

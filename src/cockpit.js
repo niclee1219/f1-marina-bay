@@ -5,6 +5,7 @@
 // the walls, and the front tyres out wide on their wishbones. The nose stays hidden behind the cowl.
 // The focused car's own model is hidden in this view (cars.js), so nothing clips the lens.
 import * as THREE from 'three';
+import { STEERING, CAMERA } from './config.js';
 
 const EYE = 0.74;                      // driver's eye height above the road (m)
 const AXLE = 1.5;                      // front axle ahead of the eyes (m)
@@ -275,16 +276,15 @@ export class Cockpit {
     renderer.setRenderTarget(prev); this.root.visible = vis;
   }
 
-  // yawRate: rad/s of the car's heading; lookYaw: the camera's look-into-corner yaw (rad), which
+  // lookYaw: the camera's look-into-corner yaw (rad), which
   // the cockpit counter-rotates so the car stays put while the view turns; tel: speed / gear / ...
-  update(dt, simDt, tel, yawRate, lookYaw = 0) {
+  // road: road wheel angle (rad, + = left) from the rendered path (cars.js steer), smoothed and in phase
+  // with the car; the wheel, gloves and front tyres all turn from it.
+  update(dt, simDt, tel, road, lookYaw = 0) {
     if (!this.root.visible || !tel) return;
-    this.root.rotation.y = -lookYaw;
-    // steering from the yaw rate at this speed: radius = v / yawRate, Ackermann angle = wheelbase / radius
-    const v = Math.max(tel.speed / 3.6, 1);
-    const want = THREE.MathUtils.clamp(Math.atan(3.6 * yawRate / v), -0.35, 0.35);
-    this.steer += (want - this.steer) * (1 - Math.exp(-10 * dt));
-    this.wheel.rotation.z = this.steer * 4;            // left turn = anticlockwise, as the front tyres steer
+    this.root.rotation.set(CAMERA.onboard.pitch, -lookYaw, 0);   // rides up with the tilted view (camera.js)
+    this.steer = road;
+    this.wheel.rotation.z = THREE.MathUtils.clamp(road * STEERING.ratio, -STEERING.maxWheel, STEERING.maxWheel);   // left turn = anticlockwise
     this.spin += (tel.speed / 3.6 / R) * simDt;
     for (const t of this.tyres) {
       t.knuckle.rotation.y = this.steer;

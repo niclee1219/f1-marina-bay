@@ -172,15 +172,23 @@ export function buildingMaterial() {
                   + (isHer + isFill) * mix(warm, neutral, 0.3);
           vec3 pattern = open * lit * wc * (1.05 - 0.3 * isOffice);
           // lobby / shopfront glow along the ground floor of towers and shops
-          float lobby = (isOffice + isHotel + isStone + float(k == 4.0)) * step(0.6, v) * step(v, 5.5) * step(0.1, bu);
-          pattern += lobby * neutral * 0.55;
+          // (dim and uneven: some bays dark, brightest in the middle of the opening; a flat 0.55 over
+          // every bay blew out through the bloom into glaring white blocks along the track walls)
+          float shopLit = step(0.4, bhash(vec2(bx, vSeed * 53.0 + face)));
+          float lobby = (isOffice + isHotel + isStone + float(k == 4.0)) * step(0.6, v) * step(v, 5.0) * step(0.12, bu) * step(bu, 0.88) * shopLit;
+          pattern += lobby * neutral * (0.12 + 0.1 * smoothstep(0.6, 2.8, v));
+          // street level is dark behind the catch fences: lit windows only reach full strength from
+          // the first few floors up (otherwise the ground-floor windows beside the track read as
+          // glaring panels of light spilling onto it)
+          float streetDim = mix(0.22, 1.0, smoothstep(3.5, 9.0, v));
+          pattern *= streetDim;
 
           // when a window cell shrinks to a few pixels, fade to its average glow (no shimmer)
           float px = max(fwidth(u / bay), fwidth(v / fh));
           float far = smoothstep(0.3, 0.9, px);
           float avgLit = isStone * 0.3 + isOffice * 0.21 + isHotel * 0.42 + isRes * 0.3 + isHer * 0.3 + isFill * 0.08;
           float avgOpen = isStone * 0.38 + isOffice * 0.66 + isHotel * 0.53 + isRes * 0.28 + isHer * 0.23 + isFill * 0.28;
-          vec3 avg = wc * avgLit * avgOpen * step(2.6, v) * 0.9;
+          vec3 avg = wc * avgLit * avgOpen * step(2.6, v) * 0.9 * streetDim;
           totalEmissiveRadiance += wall * glazed * mix(pattern, avg, far);
 
           // spandrels and mullions read darker than the glass between them
@@ -197,6 +205,9 @@ export function buildingMaterial() {
           vec3 env = mix(vec3(0.07, 0.045, 0.07), vec3(0.012, 0.04, 0.085), smoothstep(-0.1, 0.5, R.y));
           float fres = pow(1.0 - max(dot(-V, vWN), 0.0), 3.0);
           totalEmissiveRadiance += wall * glazed * (isOffice + isHotel) * tall * env * (0.3 + 1.2 * fres) * (1.0 - open * lit);
+          // undersides (a building spanning a road, overhangs) catch the street lights: a warm wash, not black
+          float under = step(0.6, -vWN.y);
+          totalEmissiveRadiance += under * vec3(0.5, 0.38, 0.24) * 0.09;
           // faint facade bounce so massing reads at night (weaker for distant filler)
           totalEmissiveRadiance += wall * vec3(0.016, 0.02, 0.032) * (0.6 + 0.4 * smoothstep(0.0, 80.0, v)) * (1.0 - 0.6 * isFill);
 
@@ -222,7 +233,7 @@ export function buildingMaterial() {
           totalEmissiveRadiance += roof * (1.0 - isTile) * uNightLift * vec3(0.75, 0.85, 1.15);
         }`);
   };
-  mat.customProgramCacheKey = () => 'building-v2';
+  mat.customProgramCacheKey = () => 'building-v3';
   return mat;
 }
 
@@ -456,7 +467,104 @@ function buildRoofscape(group, D) {
   }
 }
 
-export function buildCity(scene, city, hidden = () => false) {
+// Where the circuit runs through an OSM footprint (Marina Square straddles Raffles Boulevard) the
+// block must span the road, not fill it. Cut the footprint into pieces around a corridor along the
+// road: the pieces beside and beyond the corridor stand full height; the piece over the road is
+// raised to ARCH_CLEARANCE, so the cars drive under it. Pieces come from clipping the ring against
+// half-planes (Sutherland-Hodgman); the corridor is straight, along the chord of the route.
+const ARCH_CLEARANCE = 6.5;     // road surface to the underside of the building (m)
+const ARCH_LAMP_EVERY = 5;      // ceiling light fixtures: metres apart along the road...
+const ARCH_LAMP_ROWS = [-6, 0, 6];   // ...and in rows this far from the centreline
+const ARCH_HALF_WIDTH = 11.0;   // corridor half-width: clears the barriers (10.2 m from the centreline)
+const ROAD_LIFT = 0.18;         // track surface above its elevation (track.js LIFT)
+const ARCH_END = 2.0;           // corridor extends this far beyond the footprint along the road
+
+function clipRing(ring, f) {
+  const out = [];
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length], fa = f(a), fb = f(b);
+    if (fa >= 0) out.push(a);
+    if ((fa >= 0) !== (fb >= 0)) { const t = fa / (fa - fb); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+  }
+  return out;
+}
+
+function ringArea(r) {
+  let a = 0;
+  for (let i = 0; i < r.length; i++) { const j = (i + 1) % r.length; a += r[i][0] * r[j][1] - r[j][0] * r[i][1]; }
+  return Math.abs(a) / 2;
+}
+
+function pointInRing(x, y, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// -> { pieces: [{ ring, raised }], s0, s1 } or null when the route does not cross the footprint
+// (or crosses it too crookedly for a straight corridor)
+function carveRoute(flat, curve) {
+  const ring = [];
+  for (let i = 0; i < flat.length; i += 2) ring.push([flat[i], flat[i + 1]]);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const [x, y] of ring) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const P = curve.P, n = P.length;
+  const inside = P.map(p => p[0] > x0 && p[0] < x1 && p[1] > y0 && p[1] < y1 && pointInRing(p[0], p[1], ring));
+  const first = inside.indexOf(true);
+  if (first < 0) return null;
+  // the run of route points inside the footprint (starting from one that has an outside predecessor)
+  let i0 = first;
+  while (inside[(i0 - 1 + n) % n] && (i0 - 1 + n) % n !== first) i0 = (i0 - 1 + n) % n;
+  let i1 = i0;
+  while (inside[(i1 + 1) % n] && (i1 + 1) % n !== i0) i1 = (i1 + 1) % n;
+  const a = P[(i0 - 1 + n) % n], b = P[(i1 + 1) % n];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len < 4) return null;
+  const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len, nx = -uy, ny = ux;
+  const W = p => (p[0] - a[0]) * nx + (p[1] - a[1]) * ny;
+  const T = p => (p[0] - a[0]) * ux + (p[1] - a[1]) * uy;
+  for (let i = i0; ; i = (i + 1) % n) {
+    if (Math.abs(W(P[i])) > 3) { console.warn('carveRoute: route bends inside a footprint, left solid'); return null; }
+    if (i === i1) break;
+  }
+  const H = ARCH_HALF_WIDTH, t0 = -ARCH_END, t1 = len + ARCH_END;
+  const mid = clipRing(clipRing(ring, p => W(p) + H), p => H - W(p));
+  const parts = [
+    [clipRing(ring, p => -H - W(p)), false],
+    [clipRing(ring, p => W(p) - H), false],
+    [clipRing(mid, p => t0 - T(p)), false],
+    [clipRing(mid, p => T(p) - t1), false],
+    [clipRing(clipRing(mid, p => T(p) - t0), p => t1 - T(p)), true],
+  ];
+  const pieces = parts.filter(([r]) => r.length >= 3 && ringArea(r) > 2).map(([r, raised]) => ({ ring: r, raised }));
+  const S = curve.S, E = curve.E, ia = (i0 - 1 + n) % n, ib = (i1 + 1) % n;
+  // the road climbs a little through the building: the underside is ARCH_CLEARANCE above the highest point
+  const roadA = E[ia] + ROAD_LIFT, roadB = E[ib] + ROAD_LIFT;
+  return { pieces, s0: S[ia], s1: S[ib], ring, a, ux, uy, len, roadA, roadB, ceil: Math.max(roadA, roadB) + ARCH_CLEARANCE };
+}
+
+// Light under a raised span: rows of fixtures along the ceiling (emissive boxes) and a soft pool of
+// light on the road under each, so the passage is lit like a covered street rather than a black hole.
+function archLights(carve) {
+  const fixtures = [], pools = [];
+  const { ring, a, ux, uy, len, roadA, roadB, ceil } = carve;
+  const yaw = Math.atan2(ux, -uy);   // map direction (ux, uy) -> scene (ux, -uy)
+  for (let t = 0; t <= len; t += ARCH_LAMP_EVERY) {
+    const road = roadA + (roadB - roadA) * (t / len);
+    for (const w of ARCH_LAMP_ROWS) {
+      const x = a[0] + ux * t - uy * w, y = a[1] + uy * t + ux * w;
+      if (!pointInRing(x, y, ring)) continue;   // only under the building
+      fixtures.push(new THREE.BoxGeometry(0.34, 0.1, 2.6).rotateY(yaw).translate(x, ceil - 0.08, -y));
+      if (w === 0 || t % (ARCH_LAMP_EVERY * 2) === 0) pools.push(new THREE.PlaneGeometry(11, 11).rotateX(-Math.PI / 2).translate(x, road + 0.12, -y));
+    }
+  }
+  return { fixtures, pools };
+}
+
+export function buildCity(scene, city, hidden = () => false, curve = null) {
   const group = new THREE.Group();
   scene.add(group);
 
@@ -488,6 +596,8 @@ export function buildCity(scene, city, hidden = () => false) {
     g.translate(0, from, 0);
     geos.push(tagBuilding(g, seed, top, color, kind));
   };
+  const archLamps = [], archPools = [];
+  const arches = [];   // stretches of the circuit that run under a building: { name, s0, s1 }
   const hvac = new THREE.Color(0.2, 0.21, 0.23);
   const decor = {
     solid: (g, top) => geos.push(tagBuilding(g, 0.5, top, hvac, KIND.solid)),
@@ -497,7 +607,7 @@ export function buildCity(scene, city, hidden = () => false) {
   const tallest = city.buildings.filter(b => !hidden(b.n)).map(b => b.h).sort((a, b) => b - a)[24] || 150;
   city.buildings.forEach((b, idx) => {
     if (b.dome) { domes.push(b); return; }
-    if (hidden(b.n)) return;   // modelled by hand in skyline.js / pit.js
+    if (hidden(b.n, b)) return;   // modelled by hand in skyline.js / pit.js
     const shape = ringToShape(b.p);
     const area = Math.abs(THREE.ShapeUtils.area(shape.getPoints()));
     if (area < 6) return;
@@ -526,7 +636,15 @@ export function buildCity(scene, city, hidden = () => false) {
       block(scaledShape(b.p, 0.84), b.h * 0.74, b.h * 0.9, seed, b.h, tint, kind);
       block(scaledShape(b.p, 0.62), b.h * 0.9, b.h, seed, b.h, tint, kind);
     } else {
-      block(shape, minh, b.h, seed, b.h, tint, kind);
+      const carve = !filler && curve && minh < 3 ? carveRoute(b.p, curve) : null;
+      if (carve) {
+        for (const pc of carve.pieces) {
+          block(new THREE.Shape(pc.ring.map(([x, y]) => new THREE.Vector2(x, y))), pc.raised ? carve.ceil : minh, b.h, seed, b.h, tint, kind);
+        }
+        arches.push({ name: b.n || 'building', s0: carve.s0, s1: carve.s1 });
+        const lights = archLights(carve);
+        archLamps.push(...lights.fixtures); archPools.push(...lights.pools);
+      } else block(shape, minh, b.h, seed, b.h, tint, kind);
     }
     if (filler) return;
     // pitched clay-tile roofs on heritage low-rises (OSM roof colour where tagged)
@@ -566,6 +684,11 @@ export function buildCity(scene, city, hidden = () => false) {
     }
   });
   buildRoofscape(group, decor);
+  if (archLamps.length) {
+    group.add(new THREE.Mesh(mergeGeometries(archLamps.map(g => g.toNonIndexed())), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 1.95, 1.45) })));
+    group.add(new THREE.Mesh(mergeGeometries(archPools.map(g => g.toNonIndexed())),
+      new THREE.MeshBasicMaterial({ map: glowTexture(), color: new THREE.Color(0.17, 0.13, 0.075), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+  }
   const merged = fixNormals(mergeGeometries(geos));
   const buildings = new THREE.Mesh(merged, buildingMaterial());
   group.add(buildings);
@@ -620,7 +743,7 @@ export function buildCity(scene, city, hidden = () => false) {
     buildingTime.value += dt;
     for (const f of animated) f(dt, buildingTime.value);
   };
-  return { group, beacons: bInst, update, heightAt, domes, animated };
+  return { group, beacons: bInst, update, heightAt, domes, animated, arches };
 }
 
 // The water outline as a mask texture over its bounding box, drawn with the canvas fill rule, so

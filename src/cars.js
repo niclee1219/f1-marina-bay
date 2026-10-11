@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { TYRES } from './data.js';
-import { LIVERIES, LIVERY_DECALS, CAR_ZOOM } from './config.js';
+import { LIVERIES, LIVERY_DECALS, CAR_ZOOM, LATERAL, STEERING, TRACK_HALF_WIDTH } from './config.js';
+import { Separation } from './lateral.js';
 
 const TRAIL_N = 28;
 const TRAIL_DT = 0.07;
@@ -503,12 +504,16 @@ export class Cars {
         decals: L.reference && L.decals ? buildDecals(car, L.decals, shade) : null,
         d, root, car, wheels, spins, steers, bandMat, brakeMat, flapPivot, tailMat, tailGlow, glow, trail, label, el, details, detailed: true,
         elPos: el.querySelector('.pos'), shade,
-        heading: null, xy: [0, 0, 0, 0], world: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, 1), y: 0, spin: 0,
-        heat: 0, steer: 0, s: 0, lastComp: null,
+        heading: null, xy: [0, 0, 0, 0, 0, 0], world: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, 1), y: 0, spin: 0,
+        heat: 0, steer: 0, kappa: 0, s: 0, lastComp: null,
       };
     });
     this.tmp = [0, 0, 0, 0];
     this.tmp2 = [0, 0, 0, 0];
+    this.tc = {};                                  // centreline point scratch
+    this.sp = [0, 1, 2, 3].map(() => [0, 0, 0, 0, 0, 0]);   // steering path samples
+    this.sep = new Separation(race, track);
+    for (const c of this.cars) this.sep.attach(c);
     // apex kerbs (+-12 m around each corner apex), where cars ride the kerbs and spark. The
     // telemetry line is smoothed toward the centreline, so this goes by position along the lap.
     this.kerbAt = new Uint8Array(track.n);
@@ -523,14 +528,16 @@ export class Cars {
   }
 
   update(t, dt, cameraPos, focusK, opts) {
-    const race = this.race;
+    const race = this.race, sep = this.sep;
     const a = this.tmp, b = this.tmp2;
     const time = performance.now() / 1000;
+    // lateral pass first: where each car is pushed sideways this frame (see lateral.js)
+    sep.solve(this.cars, t, dt, opts.jumped);
     for (const c of this.cars) {
       const k = c.d.k;
-      race.pos(k, t, c.xy);
+      race.pos(k, t, c.xy, c.off);
       const x = c.xy[0], z = -c.xy[1];
-      race.pos(k, t - 0.12, a); race.pos(k, t + 0.12, b);
+      race.pos(k, t - 0.12, a, sep.offAt(c, t - 0.12, t)); race.pos(k, t + 0.12, b, sep.offAt(c, t + 0.12, t));
       const dx = b[0] - a[0], dz = -(b[1] - a[1]);
       const moved = Math.hypot(dx, dz);
       const prevHeading = c.heading;
@@ -543,6 +550,18 @@ export class Cars {
         const tt = this.track.T[i];
         raw = Math.atan2(tt.x, tt.z);
       }
+      // on the track the car points along it to within a few degrees: moving across the track
+      // yaws it slightly instead of letting it slide sideways (pit entry and exit are exempt)
+      const onTrack = c.xy[3] && Math.abs(c.xy[5]) < TRACK_HALF_WIDTH;
+      let along = 0;
+      if (onTrack) {
+        race.curve.at(c.xy[4], this.tc);
+        along = Math.atan2(this.tc.tx, -this.tc.ty);
+        if (raw !== null) {
+          let off = raw - along; off = Math.atan2(Math.sin(off), Math.cos(off));
+          raw = along + THREE.MathUtils.clamp(off, -LATERAL.maxYaw, LATERAL.maxYaw);
+        }
+      }
       if (raw !== null) {
         if (c.heading === null || opts.jumped || dt <= 0) c.heading = raw;
         else {
@@ -550,6 +569,10 @@ export class Cars {
           const step = dh * (1 - Math.exp(-HEADING_RESPONSE * dt));
           c.heading += THREE.MathUtils.clamp(step, -MAX_YAW_RATE * dt, MAX_YAW_RATE * dt);
         }
+      }
+      if (onTrack && c.heading !== null) {   // the filter lags in corners: keep the hard limit after it too
+        let off = c.heading - along; off = Math.atan2(Math.sin(off), Math.cos(off));
+        c.heading = along + THREE.MathUtils.clamp(off, -LATERAL.maxYaw, LATERAL.maxYaw);
       }
       const yNear = this.elevation(x, z, c);
       const y = c.xy[3] ? c.xy[2] + 0.18 : yNear; // on track: elevation straight from the curve
@@ -573,12 +596,8 @@ export class Cars {
       c.tel = tel;
       c.spin += tel.speed / 3.6 / 0.36 * dt;
       for (const sp of c.spins) sp.rotation.x = c.spin;
-      // front wheels steer with the rate of turn
-      if (dt > 0 && prevHeading != null && !opts.jumped) {
-        let dh = c.heading - prevHeading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-        const want = THREE.MathUtils.clamp(dh / dt * 0.12, -0.35, 0.35);
-        c.steer += (want - c.steer) * (1 - Math.exp(-10 * dt));
-      }
+      // front wheels (and the cockpit's wheel) steer with the curvature of the rendered path
+      if (detailed || k === focusK) this.steer(c, t, tel, dt, opts.jumped);
       for (const st of c.steers) st.rotation.y = c.steer;
       c.flapPivot.rotation.x = tel.drs ? 0.75 : 0;
       // rear light: steady, flashing while braking / harvesting
@@ -612,15 +631,18 @@ export class Cars {
       // trail
       const P = c.trail.geometry.attributes.position.array;
       const w = 0.45 * s;
-      let px = x, pz = z;
+      let px = x, pz = z, ty = y;
       for (let j = 0; j < TRAIL_N; j++) {
         const tj = t - j * TRAIL_DT * Math.max(1, s * 0.6);
-        race.pos(k, tj, a);
+        race.pos(k, tj, a, sep.offAt(c, tj, t));
         const qx = a[0], qz = -a[1];
         let nx = -(pz - qz), nz = px - qx;
         const L = Math.hypot(nx, nz);
         if (L > 1e-3) { nx /= L; nz /= L; } else { nx = c.dir.z; nz = -c.dir.x; }
-        const yy = y + 0.25;
+        // each point rides the road height where the car was then, not the car's height now, so the
+        // streak follows slopes and bridge decks instead of hanging flat in the air
+        if (a[3] && Number.isFinite(a[2])) ty = a[2] + 0.18; else if (j === 0) ty = y;
+        const yy = ty + 0.25;
         P[j * 6] = qx + nx * w; P[j * 6 + 1] = yy; P[j * 6 + 2] = qz + nz * w;
         P[j * 6 + 3] = qx - nx * w; P[j * 6 + 4] = yy; P[j * 6 + 5] = qz - nz * w;
         px = qx; pz = qz;
@@ -641,6 +663,31 @@ export class Cars {
       c.el.classList.toggle('focus', k === focusK);
     }
     this.sparks.update(dt);
+  }
+
+  // Steering from the path the car is drawn on, so wheel and car cannot disagree (the telemetry has
+  // no steering channel). Curvature = heading change / distance, between the two short chords
+  // either side of t, which is centred on the car (no lag) and averages ~0.1 s of path. Positive =
+  // left. c.steer is the road wheel angle (bicycle model); the cockpit multiplies by the steering
+  // ratio. Below holdKph heading from position is unreliable: no new curvature, and the angle
+  // eases to zero instead of snapping.
+  steer(c, t, tel, dt, jumped) {
+    const { race, sep } = this, k = c.d.k, W = STEERING.window, p = this.sp;
+    let want = null;
+    if (tel.speed >= STEERING.holdKph) {
+      [-1.5, -0.5, 0.5, 1.5].forEach((m, i) => race.pos(k, t + m * W, p[i], sep.offAt(c, t + m * W, t)));
+      const x1 = p[1][0] - p[0][0], y1 = p[1][1] - p[0][1], x2 = p[3][0] - p[2][0], y2 = p[3][1] - p[2][1];
+      const arc = Math.hypot((p[2][0] + p[3][0] - p[0][0] - p[1][0]) / 2, (p[2][1] + p[3][1] - p[0][1] - p[1][1]) / 2);
+      if (Math.hypot(x1, y1) > 0.02 && Math.hypot(x2, y2) > 0.02 && arc > 0.05) {
+        let dh = Math.atan2(x2, -y2) - Math.atan2(x1, -y1);
+        dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+        c.kappa = dh / arc;
+        want = THREE.MathUtils.clamp(Math.atan(STEERING.wheelbase * c.kappa), -STEERING.maxRoad, STEERING.maxRoad);
+      }
+    } else want = 0;
+    if (want === null) return;                       // path unusable this frame: hold the last angle
+    if (jumped) c.steer = want;
+    else if (dt > 0) c.steer += (want - c.steer) * (1 - Math.exp(-dt / (tel.speed >= STEERING.holdKph ? STEERING.ease : 0.3)));
   }
 
   setPositions(order) {

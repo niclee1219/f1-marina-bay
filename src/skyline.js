@@ -137,6 +137,8 @@ function materials() {
     floodWhite: new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.7, emissive: new THREE.Color(0.46, 0.45, 0.43) }),
     slate: new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.8, emissive: 0x0c0d10 }),
     cream: new THREE.MeshStandardMaterial({ color: COLORS.fullertonCream, roughness: 0.8, emissive: new THREE.Color(0.36, 0.28, 0.16) }),
+    // inside-lit glass roofs (Millenia Tower's pyramid): cool, much dimmer than the heritage floodlighting
+    glassRoof: new THREE.MeshStandardMaterial({ color: 0x24304a, roughness: 0.15, metalness: 0.7, emissive: new THREE.Color(0.1, 0.15, 0.26), side: THREE.DoubleSide }),
     floodlit: new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.7, emissive: new THREE.Color(0.62, 0.56, 0.46) }),
   };
 }
@@ -725,6 +727,35 @@ function padang(city, M, lm) {
     g.add(new THREE.Mesh(new THREE.TorusGeometry(62, 0.12, 3, 96).rotateX(Math.PI / 2).translate(pad.x + Math.cos(pad.dir) * 40, 0.15, -(pad.y + Math.sin(pad.dir) * 40)), M.led));
   }
 
+  // rain trees ringing the lawn, each with an uplight, and the Victoria Concert Hall clock tower
+  if (lawnRing) {
+    const n = lawnRing.length / 2, trunks = [], crowns = [], glows = [];
+    let carry = 0;
+    for (let i = 0; i < n; i++) {
+      const x0 = lawnRing[i * 2], y0 = lawnRing[i * 2 + 1], x1 = lawnRing[((i + 1) % n) * 2], y1 = lawnRing[((i + 1) % n) * 2 + 1];
+      const L = Math.hypot(x1 - x0, y1 - y0);
+      for (let d = carry; d < L; d += 17) {
+        const f = d / L, x = x0 + (x1 - x0) * f, y = y0 + (y1 - y0) * f;
+        const k = 6 / Math.max(1, Math.hypot(pad.x - x, pad.y - y));
+        const tx = x + (pad.x - x) * k, tz = -(y + (pad.y - y) * k), sc = 0.8 + rnd() * 0.5;
+        trunks.push(new THREE.CylinderGeometry(0.5 * sc, 0.8 * sc, 8 * sc, 6).translate(tx, 4 * sc, tz));
+        crowns.push(new THREE.SphereGeometry(8.5 * sc, 10, 6).scale(1, 0.5, 1).translate(tx, 9.5 * sc, tz));
+        glows.push(new THREE.CylinderGeometry(0.3, 0.3, 0.25, 6).translate(tx, 0.2, tz + 2.4));
+        if (d + 17 >= L) carry = d + 17 - L;
+      }
+      if (L < carry) carry -= L;
+    }
+    const merge = list => mergeGeometries(list.map(x => { x = x.index ? x.toNonIndexed() : x; x.deleteAttribute('uv'); return x; }));
+    g.add(new THREE.Mesh(merge(trunks), M.heritageDark), new THREE.Mesh(merge(crowns), M.green), new THREE.Mesh(merge(glows), M.led));
+  }
+  const vt = byName(city, 'Victoria Theatre and Concert Hall');
+  if (vt) {
+    const c = centroid(vt.p), top = 15;
+    white.push(toWorld(new THREE.BoxGeometry(8, 36, 8).translate(0, top + 18, 0), c.x, c.y, 0));
+    lit.push(toWorld(new THREE.BoxGeometry(8.6, 6, 8.6).translate(0, top + 36 + 3, 0), c.x, c.y, 0));
+    copper.push(toWorld(new THREE.ConeGeometry(6.2, 11, 4).rotateY(Math.PI / 4).translate(0, top + 42 + 5.5, 0), c.x, c.y, 0));
+  }
+
   const add = (list, mat) => { if (list.length) g.add(new THREE.Mesh(mergeGeometries(list.map(x => (x.index ? x.toNonIndexed() : x)).map(x => { if (x.attributes.uv) x.deleteAttribute('uv'); return x; })), mat)); };
   add(white, M.heritage); add(dark, M.heritageDark); add(lit, M.windowLit); add(copper, M.copper); add(roof, M.roof); add(glassBox, M.litGlass);
   add(led, M.led); add(slate, M.slate); add(cream, M.cream); add(bright, M.floodWhite);
@@ -843,6 +874,118 @@ function cbd(city, M) {
   if (metal.length) g.add(new THREE.Mesh(mergeGeometries(metal.map(x => (x.index ? x.toNonIndexed() : x))), M.metal));
   if (led.length) g.add(new THREE.Mesh(mergeGeometries(led.map(x => (x.index ? x.toNonIndexed() : x))), M.led));
   if (flood.length) g.add(new THREE.Mesh(mergeGeometries(flood.map(x => (x.index ? x.toNonIndexed() : x))), M.floodlit));
+  return g;
+}
+
+// ---------------------------------------------------------------- bay-front towers
+// Millenia Tower (glass pyramid on four lit columns), Centennial Tower, The Ritz-Carlton Millenia
+// (faceted stepped stone-and-glass diamond), Pan Pacific (wedge with a stepped crown and lit atrium),
+// Mandarin Oriental (curved fan of bays), PARKROYAL Collection Marina Bay (terraced face), Suntec
+// City's towers (girder bands) and the Civilian War Memorial. Dimensions from public descriptions.
+function chamferRect(len, wid, c) {
+  const x = len / 2, y = wid / 2, sh = new THREE.Shape();
+  [[-x + c, -y], [x - c, -y], [x, -y + c], [x, y - c], [x - c, y], [-x + c, y], [-x, y - c], [-x, -y + c]]
+    .forEach(([a, b], i) => (i ? sh.lineTo(a, b) : sh.moveTo(a, b)));
+  return sh;
+}
+
+function bayTowers(city, M) {
+  const g = new THREE.Group();
+  const glass = [], metal = [], led = [], flood = [], lit = [], green = [], roof = [];
+  const I = x => (x.index ? x.toNonIndexed() : x);
+  for (const t of LANDMARKS.towers) {
+    let o;
+    if (t.match) { const b = byName(city, t.match); if (!b) continue; o = obb(b.p); }
+    else if (t.at) {
+      const b = city.buildings.find(q => !q.n && Math.hypot(centroid(q.p).x - t.at[0], centroid(q.p).y - t.at[1]) < t.at[2]);
+      if (!b) continue;
+      o = obb(b.p);
+    } else o = { cx: t.pos[0], cy: t.pos[1], a: t.rot, len: 50, wid: 50 };
+    const H = t.h, W = (geo) => toWorld(geo, o.cx, o.cy, o.a);
+    const body = (geo, seed, color, kind = KIND.office, top = H) => glass.push(tagBuilding(W(geo), seed, top, color, kind));
+    const slate = new THREE.Color(0.26, 0.3, 0.36), blue = new THREE.Color(0.22, 0.3, 0.4), stone = new THREE.Color(0.4, 0.36, 0.3);
+    const seed = (t.key.length * 0.137) % 1;
+    if (t.style === 'millenia') {
+      // 50 m square glass shaft lifted on four lit round columns, capped by a 42 m glass pyramid
+      const w = 50, py = 42;
+      body(extrudeUp(chamferedSquare(w, 0.04), 15, H - py), seed, blue);
+      body(extrudeUp(chamferedSquare(w * 0.82, 0.05), 0, 15), seed, stone, KIND.solid, 15);
+      for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) flood.push(W(new THREE.CylinderGeometry(2.2, 2.4, 15, 14).translate(sx * 19, 7.5, sz * 19)));
+      roof.push(W(new THREE.ConeGeometry(w * 0.71, py, 4, 1, true).rotateY(Math.PI / 4).translate(0, H - py / 2, 0)));
+      led.push(W(new THREE.BoxGeometry(w + 0.6, 0.8, w + 0.6).translate(0, H - py, 0)));
+      led.push(W(new THREE.CylinderGeometry(0.25, 0.5, 14, 6).translate(0, H + 7 - 0.1, 0)));
+    } else if (t.style === 'centennial') {
+      // 158 m slab with notched corners, banded by pale vertical fins and a stepped parapet
+      const len = o.len, wid = o.wid;
+      body(extrudeUp(chamferRect(len, wid, 7), 0, H), seed, slate);
+      for (let u = -len / 2 + 6; u < len / 2 - 3; u += 8) for (const f of [-1, 1]) metal.push(W(new THREE.BoxGeometry(1.1, H, 0.7).translate(u, H / 2, f * (wid / 2 + 0.2))));
+      metal.push(W(new THREE.BoxGeometry(len * 0.7, 6, wid * 0.7).translate(0, H + 3, 0)));
+      led.push(W(new THREE.BoxGeometry(len * 0.72, 0.5, wid * 0.72).translate(0, H + 6.2, 0)));
+    } else if (t.style === 'ritz') {
+      // Kevin Roche's faceted diamond: warm stone tiers stepping back, chamfered corners, a glass
+      // lobby crown at the base; octagonal-bay strips run up each facet
+      const tiers = [[0, 14, 50, 0.1], [14, 70, 44, 0.16], [70, 100, 36, 0.2], [100, 118, 28, 0.24], [118, H, 20, 0.28]];
+      tiers.forEach(([a, b, w, c], k) => body(extrudeUp(chamferedSquare(w, c), a, b), seed + k * 0.1, k < 2 ? stone : stone.clone().lerp(blue, 0.35), KIND.stone, H));
+      for (let a = 14; a < H - 10; a += 7) metal.push(W(new THREE.TorusGeometry(19 - (a > 70 ? (a - 70) * 0.18 : 0), 0.25, 3, 8).rotateX(Math.PI / 2).rotateY(Math.PI / 8).translate(0, a, 0)));
+      led.push(W(new THREE.TorusGeometry(10, 0.4, 4, 8).rotateX(Math.PI / 2).rotateY(Math.PI / 8).translate(0, H + 0.4, 0)));
+      lit.push(W(new THREE.CylinderGeometry(14, 20, 8, 8, 1, true).translate(0, 4, 0)));
+    } else if (t.style === 'panpacific') {
+      // Portman wedge: tapered plan, banded light concrete and dark glass, stepped crown, a bright
+      // full-height atrium slot down the harbour face
+      const sh = new THREE.Shape();
+      [[-34, -14], [34, -24], [34, 24], [-34, 14]].forEach(([x, y], i) => (i ? sh.lineTo(x, y) : sh.moveTo(x, y)));
+      body(extrudeUp(sh, 0, H - 22), seed, new THREE.Color(0.34, 0.33, 0.32), KIND.hotel);
+      [[0.8, 14], [0.6, 8]].forEach(([k, hh], j) => body(extrudeUp(sh, H - 22 + j * 14, H - 22 + j * 14 + hh).scale(k, 1, k), seed + 0.2, new THREE.Color(0.36, 0.35, 0.34), KIND.hotel));
+      lit.push(W(new THREE.BoxGeometry(6, H - 26, 0.6).translate(0, (H - 26) / 2 + 4, 24.6)));
+      led.push(W(new THREE.BoxGeometry(18, 0.6, 14).translate(0, H + 0.2, 0)));
+    } else if (t.style === 'mandarin') {
+      // three overlapping round bays around a core: smooth curved concrete bands, lit atrium
+      const R = 22, off = 14;
+      for (let k = 0; k < 3; k++) {
+        const a = k * Math.PI * 2 / 3 + 0.4;
+        body(new THREE.CylinderGeometry(R, R, H - 6 + (k === 0 ? 6 : 0), 28).translate(Math.cos(a) * off, (H - 6 + (k === 0 ? 6 : 0)) / 2, Math.sin(a) * off), seed + k * 0.17, new THREE.Color(0.5, 0.49, 0.47), KIND.hotel);
+        led.push(W(new THREE.TorusGeometry(R, 0.3, 4, 36).rotateX(Math.PI / 2).translate(Math.cos(a) * off, H - 5.7, Math.sin(a) * off)));
+      }
+      metal.push(W(new THREE.BoxGeometry(12, 5, 12).translate(0, H + 2.5, 0)));
+    } else if (t.style === 'parkroyal') {
+      // PARKROYAL Collection Marina Bay (ex Marina Mandarin): terraces stepping back from the road,
+      // planted roofs, dark banded glass
+      const steps = 5, d0 = o.wid, hh = H / steps;
+      for (let k = 0; k < steps; k++) {
+        const d = d0 * (1 - k * 0.14);
+        body(new THREE.BoxGeometry(o.len * 0.9, hh, d).translate(0, hh * k + hh / 2, (d - d0) / 2), seed + k * 0.05, new THREE.Color(0.3, 0.3, 0.32), KIND.hotel, H);
+        green.push(W(new THREE.BoxGeometry(o.len * 0.9 - 2, 0.8, 5).translate(0, hh * (k + 1) + 0.4, (d - d0) / 2 - d / 2 + 3.5)));
+      }
+    } else if (t.style === 'suntec') {
+      // Suntec City's "hand" towers: chamfered glass shafts with steel girder bands at two floors
+      const w = Math.min(o.len, o.wid, 60);
+      body(extrudeUp(chamferedSquare(w * 0.96, 0.08), 0, H), seed, blue);
+      for (const y of [H * 0.52, H - 3]) metal.push(W(new THREE.BoxGeometry(w + 1.2, 3.2, w + 1.2).translate(0, y, 0)));
+      led.push(W(new THREE.BoxGeometry(w * 0.7, 0.5, w * 0.7).translate(0, H + 0.3, 0)));
+    }
+  }
+  // Civilian War Memorial: four pillars sharing a stepped base, each leaning toward the centre
+  const wm = LANDMARKS.warMemorial;
+  if (wm) {
+    const H = wm.h, lean = Math.atan2(5.5, H);
+    const base = new THREE.Group();
+    const add = (geo, list) => list.push(toWorld(geo, wm.pos[0], wm.pos[1], wm.rot));
+    add(new THREE.BoxGeometry(34, 1.4, 34).translate(0, 0.7, 0), flood);
+    add(new THREE.BoxGeometry(26, 1.2, 26).translate(0, 2.0, 0), flood);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const pil = new THREE.CylinderGeometry(1.5, 3.4, H, 4).rotateY(Math.PI / 4);   // square section, tapering
+      pil.translate(0, H / 2, 0);
+      pil.rotateZ(sx * lean);   // lean toward the centre on both axes
+      pil.rotateX(-sz * lean);
+      pil.translate(sx * 8, 2.6, sz * 8);
+      add(pil, flood);
+    }
+    // ground uplights that wash the pillars
+    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) add(new THREE.CylinderGeometry(0.5, 0.5, 0.3, 8).translate(sx * 11.5, 2.75, sz * 11.5), led);
+  }
+  const mk = (list, mat, tri = true) => { if (list.length) g.add(new THREE.Mesh(mergeGeometries(list.map(x => { x = I(x); if (x.attributes.uv) x.deleteAttribute('uv'); return x; })), mat)); };
+  if (glass.length) g.add(new THREE.Mesh(mergeGeometries(glass), M.glass));
+  mk(metal, M.metal); mk(led, M.led); mk(flood, M.floodlit); mk(lit, M.litGlass); mk(green, M.green); mk(roof, M.glassRoof);
   return g;
 }
 
@@ -983,8 +1126,10 @@ class Fireworks {
 }
 
 // ---------------------------------------------------------------- entry point
-export function hiddenBuilding(name) {
-  if (!name) return false;
+export function hiddenBuilding(name, b) {
+  // unnamed OSM footprints rebuilt by hand are picked by position
+  if (!name) return !!b && LANDMARKS.towers.some(t => t.at && Math.hypot(centroid(b.p).x - t.at[0], centroid(b.p).y - t.at[1]) < t.at[2]);
+  if (LANDMARKS.towers.some(t => t.match === name)) return true;
   const pats = [...LANDMARKS.mbs.replaces, ...LANDMARKS.pit.replaces, ...LANDMARKS.extraHidden];
   if (pats.some(p => p.test(name))) return true;
   const p = LANDMARKS.padang;
@@ -1005,6 +1150,7 @@ export function buildSkyline(scene, city, domes) {
   g.add(padang(city, M, city.landmarks.find(l => l.name === 'Padang')));
   g.add(artScience(M));
   g.add(cbd(city, M));
+  g.add(bayTowers(city, M));
   horizonLayers(scene);
   const fireworks = new Fireworks(scene);
   let t = 0;

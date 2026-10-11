@@ -200,7 +200,7 @@ export class Viaducts {
       glass: new THREE.MeshStandardMaterial({ color: 0x3c5566, metalness: 0.4, roughness: 0.15, emissive: 0x0a1418, side: THREE.DoubleSide }),
       white: new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.6, emissive: 0x2a2824 }),
       lamp: new THREE.MeshBasicMaterial({ color: lampCol }),
-      flood: new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.15, 2.0) }),
+      flood: new THREE.MeshBasicMaterial({ color: new THREE.Color(1.35, 1.32, 1.25) }),
       led: new THREE.MeshBasicMaterial({ vertexColors: true }),
     };
     for (const [k, list] of Object.entries(parts)) {

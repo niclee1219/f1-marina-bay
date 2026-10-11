@@ -312,7 +312,7 @@ export class Director {
       this.lookYaw += (THREE.MathUtils.clamp(this.yawRate * O.look, -0.09, 0.09) - this.lookYaw) * k;
       const base = new THREE.Vector3(p.x, this.camY, p.z);
       wantPos = base.clone().addScaledVector(d, -0.25).add(new THREE.Vector3(0, O.eye, 0)).add(jitter);
-      wantLook = base.clone().addScaledVector(d, 30).add(new THREE.Vector3(0, O.eye - 1.5 - this.nod, 0)).add(jitter.multiplyScalar(2));
+      wantLook = base.clone().addScaledVector(d, 30).add(new THREE.Vector3(0, O.eye - 0.35 - this.nod, 0)).add(jitter.multiplyScalar(2));
       fov = 72 + sp * 10;
       lerp = 1;
       this.speedFactor = sp;
@@ -369,7 +369,7 @@ export class Director {
     cam.position.copy(this.pos);
     cam.up.set(0, 1, 0);
     cam.lookAt(this.look);
-    if (this.mode === 'onboard') { cam.rotateZ(this.lean); cam.rotateY(this.lookYaw || 0); }
+    if (this.mode === 'onboard') { cam.rotateX(-CAMERA.onboard.pitch); cam.rotateZ(this.lean); cam.rotateY(this.lookYaw || 0); }
     if (Math.abs(cam.fov - this.smoothFov) > 0.01) {
       cam.fov = this.smoothFov;
       cam.updateProjectionMatrix();
