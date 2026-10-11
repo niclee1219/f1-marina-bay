@@ -173,8 +173,8 @@ async function boot() {
   cars.onSelect = k => { state.focusK = k; };
 
   // flat fallback when reflections are off
-  const waterFlat = new THREE.Mesh(water.geometry, new THREE.MeshStandardMaterial({ color: 0x06121f, roughness: 0.25, metalness: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
-  waterFlat.position.y = 0.01; waterFlat.visible = false;
+  const waterFlat = water.userData.flat;   // same plane and water mask as the reflective water
+  waterFlat.visible = false;
   scene.add(waterFlat);
 
   // 'auto' hands the camera to the Director; any other mode glides there from the current view

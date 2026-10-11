@@ -5,6 +5,7 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import { buildRoads } from './roads.js';
 import { elevatedRoadKeys } from './viaducts.js';
 import { COLORS, NIGHT } from './config.js';
+import { QUALITY } from './quality.js';
 
 // OSM metres (x east, y north) -> scene (X, Z)
 export const sx = x => x;
@@ -42,26 +43,40 @@ function flatPolys(rings, y) {
 
 export function buildSky(scene) {
   const geo = new THREE.SphereGeometry(9000, 48, 24);
+  // Light-polluted tropical night (references/): deep navy overhead, a warm sodium glow and grey
+  // haze toward the horizon, thin cloud lit from below by the city, a few stars only high up
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: {},
+    uniforms: { time: { value: 0 } },
     vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
     fragmentShader: `
+      uniform float time;
       varying vec3 vDir;
       float hash(vec3 p){ p = fract(p*0.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+      float h2(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+      float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
+      float fbm(vec2 p){ float a = 0.5, s = 0.0; for (int k = 0; k < 4; k++) { s += a * vn(p); p = p * 2.03 + 7.1; a *= 0.5; } return s; }
       void main(){
         float h = vDir.y;
-        vec3 top = vec3(0.012,0.016,0.045);
-        vec3 mid = vec3(0.045,0.035,0.10);
-        vec3 glow = vec3(0.32,0.12,0.16);   // sodium/neon city glow on the haze
+        vec3 top = vec3(0.008, 0.013, 0.036);
+        vec3 mid = vec3(0.03, 0.03, 0.07);
+        vec3 glow = vec3(0.3, 0.16, 0.11);      // sodium city glow on the humid haze
+        vec3 haze = vec3(0.16, 0.13, 0.14);     // grey-pink haze band right on the horizon
         vec3 c = mix(mid, top, smoothstep(0.02, 0.55, h));
-        c = mix(c, glow, (1.0 - smoothstep(-0.02, 0.16, h)) * 0.55);
+        c = mix(c, glow, (1.0 - smoothstep(-0.02, 0.2, h)) * 0.5);
+        c = mix(c, haze, (1.0 - smoothstep(-0.01, 0.045, abs(h - 0.01))) * 0.45);
+        // thin cloud on a flat layer: projected so it thins toward the horizon, lit from below
+        vec2 cp = vDir.xz / max(h + 0.08, 0.02) * 1.6 + vec2(time * 0.004, time * 0.0016);
+        float cloud = smoothstep(0.52, 0.8, fbm(cp)) * smoothstep(0.03, 0.18, h) * (1.0 - smoothstep(0.55, 0.95, h));
+        c = mix(c, vec3(0.2, 0.12, 0.1) * (1.4 - h), cloud * 0.55);
         float s = hash(floor(vDir*900.));
-        c += vec3(step(0.9985, s) * smoothstep(0.1, 0.5, h) * 0.6);
+        c += vec3(step(0.9988, s) * smoothstep(0.25, 0.6, h) * (1.0 - cloud) * 0.5);
         gl_FragColor = vec4(c, 1.);
       }`,
   });
   const sky = new THREE.Mesh(geo, mat);
+  sky.onBeforeRender = () => { mat.uniforms.time.value = performance.now() / 1000; };
   sky.renderOrder = -1;
   scene.add(sky);
   return sky;
@@ -606,13 +621,52 @@ export function buildCity(scene, city, hidden = () => false) {
   return { group, beacons: bInst, update, heightAt, domes, animated };
 }
 
+// The water outline as a mask texture over its bounding box, drawn with the canvas fill rule, so
+// OSM rings that overlap, were clipped at tile edges and closed straight across, or self-intersect
+// never leave gaps (triangulating them did: black slivers across the bay). One plane carries the
+// water and keeps only the mask; the shoreline is the filtered mask edge.
+function waterMask(rings, res) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const r of rings) for (let i = 0; i < r.length; i += 2) {
+    x0 = Math.min(x0, r[i]); x1 = Math.max(x1, r[i]); y0 = Math.min(y0, r[i + 1]); y1 = Math.max(y1, r[i + 1]);
+  }
+  const cap = 4200;   // metres from the map origin: beyond that the fog has the water anyway
+  x0 = Math.max(x0, -cap) - 4; x1 = Math.min(x1, cap) + 4; y0 = Math.max(y0, -cap) - 4; y1 = Math.min(y1, cap) + 4;
+  const c = document.createElement('canvas');
+  c.width = c.height = res;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';
+  const sx = res / (x1 - x0), sy = res / (y1 - y0);
+  for (const r of rings) {
+    if (r.length < 6) continue;
+    g.beginPath();
+    for (let i = 0; i < r.length; i += 2) g[i ? 'lineTo' : 'moveTo']((r[i] - x0) * sx, (y1 - r[i + 1]) * sy);
+    g.closePath();
+    g.fill('nonzero');
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  // box in scene coordinates: x east, z = -north
+  return { tex, box: new THREE.Vector4(x0, -y1, x1 - x0, y1 - y0) };
+}
+
+const MASK_GLSL = /* glsl */`
+  uniform sampler2D tMask; uniform vec4 maskBox;
+  float waterAt(vec2 xz) { return texture2D(tMask, vec2((xz.x - maskBox.x) / maskBox.z, 1.0 - (xz.y - maskBox.y) / maskBox.w)).r; }
+`;
+
 export function buildWater(scene, city, renderer) {
-  const geo = flatPolys(city.water, 0);
+  const mask = waterMask(city.water, QUALITY.level === 'high' ? 4096 : 2048);
+  const b = mask.box;
+  const geo = new THREE.PlaneGeometry(b.z, b.w).rotateX(-Math.PI / 2).translate(b.x + b.z / 2, 0, b.y + b.w / 2);
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const shader = {
     uniforms: {
       color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null },
       time: { value: 0 }, fogColor: { value: new THREE.Color(COLORS.night) },
+      tMask: { value: mask.tex }, maskBox: { value: b },
     },
     vertexShader: `
       uniform mat4 textureMatrix; varying vec4 vUv; varying vec3 vW; varying float vDepth;
@@ -625,6 +679,7 @@ export function buildWater(scene, city, renderer) {
     fragmentShader: `
       uniform vec3 color; uniform sampler2D tDiffuse; uniform float time; uniform vec3 fogColor;
       varying vec4 vUv; varying vec3 vW; varying float vDepth;
+      ${MASK_GLSL}
       float h21(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
       float vnoise(vec2 p){
         vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -632,6 +687,7 @@ export function buildWater(scene, city, renderer) {
       }
       void main(){
         vec2 w = vW.xz;
+        if (waterAt(w) < 0.5) discard;
         // small wind ripples; distortion shrinks with distance so far water stays calm instead of noisy
         float n1 = vnoise(w * 0.08 + vec2(time * 0.25, time * 0.18));
         float n2 = vnoise(w * 0.21 - vec2(time * 0.31, -time * 0.22));
@@ -665,6 +721,18 @@ export function buildWater(scene, city, renderer) {
   water.material.polygonOffsetFactor = -1;
   water.material.polygonOffsetUnits = -2;
   scene.add(water);
+  // flat fallback when reflections are off (main.js toggles the two): the same plane and mask
+  const flatMat = new THREE.MeshStandardMaterial({ color: 0x06121f, roughness: 0.25, metalness: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
+  flatMat.onBeforeCompile = (s) => {
+    s.uniforms.tMask = { value: mask.tex };
+    s.uniforms.maskBox = { value: b };
+    s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWaterW;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    s.fragmentShader = s.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWaterW;' + MASK_GLSL)
+      .replace('void main() {', 'void main() {\n  if (waterAt(vWaterW.xz) < 0.5) discard;');
+  };
+  water.userData.flat = new THREE.Mesh(geo, flatMat);
+  water.userData.flat.position.y = 0.01;
   return water;
 }
 
