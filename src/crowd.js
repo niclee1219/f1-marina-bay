@@ -3,6 +3,7 @@
 // arms raised and waved, and phone torches that flash when cars pass the block.
 import * as THREE from 'three';
 import { CROWD } from './config.js';
+import { QUALITY } from './quality.js';
 
 const MAX_BLOCKS = 32;
 const SKIN = ['#f1c9a5', '#e0ac85', '#c68c63', '#9c6b48', '#6f4a33', '#f5d6bd'];
@@ -109,7 +110,7 @@ export class Crowd {
       for (let r = 0; r < s.rows; r++) {
         const y = 1.4 + r * 0.55, x = r * 0.85 + 0.35;
         for (let z = -s.len / 2 + 0.4; z < s.len / 2 - 0.4; z += 0.55) {
-          if (this.rnd() > dens) continue;
+          if (this.rnd() > dens * QUALITY.crowd) continue;
           q.setFromAxisAngle(up, (this.rnd() - 0.5) * 0.35);
           m.compose(new THREE.Vector3(x, y, z + (this.rnd() - 0.5) * 0.12), q, new THREE.Vector3(1, 0.92 + this.rnd() * 0.16, 1));
           items.push(m.clone().premultiply(s.group.matrixWorld));
@@ -131,7 +132,7 @@ export class Crowd {
         const P = track.P[k], N = track.N[k];
         for (let row = 0; row < 3; row++) {
           for (let sub = 0; sub < 3; sub++) {
-            if (this.rnd() > w.density * (1 - row * 0.2)) continue;
+            if (this.rnd() > w.density * (1 - row * 0.2) * QUALITY.crowd) continue;
             const off = side * (10.2 + 3.2 + row * 0.9 + this.rnd() * 0.3);
             const along = (sub / 3 - 0.5) * track.bin;
             const T = track.T[k];
@@ -155,7 +156,7 @@ export class Crowd {
       const step = d.wid < 3 ? 0.7 : 1.1;
       for (let lx = -d.len / 2; lx < d.len / 2; lx += step) {
         for (let lz = -d.wid / 2; lz <= d.wid / 2; lz += step) {
-          if (this.rnd() > d.density) continue;
+          if (this.rnd() > d.density * QUALITY.crowd) continue;
           // local (lx, lz) -> world, matching skyline.toWorld (rotateY(angle))
           const x = d.x + lx * c + lz * s, z = d.z - lx * s + lz * c;
           q.setFromAxisAngle(up, d.angle + Math.PI / 2 + (this.rnd() - 0.5) * 1.2);

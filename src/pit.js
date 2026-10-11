@@ -14,23 +14,6 @@ import { logoImage } from './sponsors.js';
 const G0 = 6.5, L1 = 11, L2 = 16;     // garage roof, office roof, Paddock Club roof (m)
 const DEPTH = 30;                      // building depth from the pit-lane face
 
-function teamBoards(teams) {
-  const c = document.createElement('canvas');
-  c.width = 512; c.height = 64 * teams.length;
-  const x = c.getContext('2d');
-  teams.forEach(([name, col], i) => {
-    x.fillStyle = '#0d0e12'; x.fillRect(0, i * 64, 512, 64);
-    x.fillStyle = col; x.fillRect(0, i * 64 + 54, 512, 10); x.fillRect(0, i * 64, 14, 64);
-    x.fillStyle = '#ffffff';
-    x.font = 'italic 900 34px "Titillium Web", sans-serif';
-    x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(name.toUpperCase(), 263, i * 64 + 28);
-  });
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
 // One cell per letter, white on transparent. The same atlas is alpha-tested for the white face and
 // for the red side-wall slices under it.
 function letterAtlas(word) {
@@ -168,26 +151,15 @@ export function buildPitComplex(g, city, race, track) {
   const front = dz;                     // garage doors on the garage line
   const len = o.len * 0.96;
   const cx = o.cx, cy = o.cy;
-  const xdir = [Math.cos(a), Math.sin(a)];
-  // building-local x of lane distance u (along the garage line)
-  const localX = u => { const q = garageAt(u); return (q[0] - cx) * xdir[0] + (q[1] - cy) * xdir[1]; };
   const y0 = track.P[track.nearest(cx, -cy).i].y - 0.18;
   const place = geo => toWorld(geo.translate(0, y0, 0), cx, cy, a);
 
-  const colors = new Map(race.drivers.map(d => [d.team, d.color]));
-  const boxes = (L.data.boxes || []).filter(b => colors.has(b.team));
-  const teams = boxes.map(b => [b.team, colors.get(b.team)]);
-  // bay width from the box spacing (the closest pair of neighbouring teams sets it)
-  const bx = boxes.map(b => localX(b.u));
-  const gaps = bx.slice(1).map((x, i) => Math.abs(x - bx[i]));
-  const bayLen = Math.min(12, (gaps.length ? Math.min(...gaps) : 24) / 2);
-  const teamX = ti => bx[ti];
-
   const roofSlab = [];
-  const shell = [], glass = [], lit = [], dark = [], white = [], accentGeos = [], boards = [], led = [], rail = [];
+  const shell = [], glass = [], lit = [], dark = [], white = [], led = [], rail = [];
   // structure: ground-floor slab, office level, Paddock Club, roof
-  // garages are recessed 2 m behind the door line
-  shell.push(new THREE.BoxGeometry(len, G0, DEPTH - 2).translate(0, G0 / 2, front - 2 - (DEPTH - 2) / 2));
+  // the garages themselves (garages.js) fill the first PIT_LANE.garageDepth metres behind the doors
+  const GD = PIT_LANE.garageDepth;
+  shell.push(new THREE.BoxGeometry(len, G0, DEPTH - GD).translate(0, G0 / 2, front - GD - (DEPTH - GD) / 2));
   glass.push(new THREE.BoxGeometry(len, L1 - G0 - 0.6, DEPTH - 1).translate(0, (G0 + 0.6 + L1) / 2, front - DEPTH / 2 - 0.5));
   glass.push(new THREE.BoxGeometry(len, L2 - L1 - 0.7, DEPTH + 2).translate(0, (L1 + 0.7 + L2) / 2, front - DEPTH / 2 + 1));
   white.push(new THREE.BoxGeometry(len + 2, 0.6, DEPTH + 4).translate(0, G0 + 0.3, front - DEPTH / 2 + 1));
@@ -202,41 +174,6 @@ export function buildPitComplex(g, city, race, track) {
   rail.push(new THREE.BoxGeometry(len, 1.1, 0.06).translate(0, L1 + 1.25, front + 2.9));
   led.push(new THREE.BoxGeometry(len, 0.08, 0.12).translate(0, L1 + 1.85, front + 2.9));
 
-  // garages: lit interior behind each door, team-colour back wall, door frame and name board
-  const boardTex = teamBoards(teams);
-  teams.forEach(([name, col], ti) => {
-    const c = new THREE.Color(col);
-    for (let k = 0; k < 2; k++) {
-      const bx = teamX(ti) + (k - 0.5) * bayLen;
-      const dw = bayLen - 1.6;
-      // interior glow in the team's colour (kept under the bloom threshold so it doesn't blow out)
-      accentGeos.push({ g: new THREE.BoxGeometry(dw, 4.6, 0.2).translate(bx, 2.4, front - 1.95), c: c.clone().lerp(new THREE.Color(1, 0.97, 0.9), 0.55).multiplyScalar(0.48) });
-      accentGeos.push({ g: new THREE.BoxGeometry(dw, 1.2, 0.25).translate(bx, 4.2, front - 1.8), c });      // team wall panel
-      dark.push(new THREE.BoxGeometry(dw, 1.0, 0.3).translate(bx, 5.2, front - 0.2));                        // half-raised door
-      for (const s of [-1, 1]) accentGeos.push({ g: new THREE.BoxGeometry(0.35, G0 - 0.4, 0.4).translate(bx + s * (dw / 2 + 0.2), (G0 - 0.4) / 2, front + 0.05), c });
-      // epoxy garage floor
-      dark.push(new THREE.BoxGeometry(dw, 0.05, 3).translate(bx, 0.05, front - 0.2));
-    }
-    // name board spanning the team's two garages
-    const bg = new THREE.PlaneGeometry(bayLen * 2 - 1, 1.1).translate(teamX(ti), G0 - 1.2, front + 0.32);
-    const uv = bg.attributes.uv;
-    for (let q = 0; q < uv.count; q++) uv.setY(q, (teams.length - 1 - ti + uv.getY(q)) / teams.length);
-    boards.push(bg);
-    // team-colour stripe along the office level above the team's garages
-    accentGeos.push({ g: new THREE.BoxGeometry(bayLen * 2 - 0.6, 0.35, 0.2).translate(teamX(ti), G0 + 0.9, front + 0.2), c });
-  });
-
-  // pit-wall stands: one per team on the track side of the lane
-  const standZ = front + PIT_LANE.garage + PIT_LANE.fast + 1.2;
-  teams.forEach(([, col], ti) => {
-    const c = new THREE.Color(col);
-    const bx = teamX(ti);
-    dark.push(new THREE.BoxGeometry(6, 1.6, 2.2).translate(bx, 0.8, standZ));
-    accentGeos.push({ g: new THREE.BoxGeometry(6.6, 0.3, 3).translate(bx, 3.3, standZ), c });
-    for (const s of [-1, 1]) dark.push(new THREE.BoxGeometry(0.15, 3.2, 0.15).translate(bx + s * 3, 1.6, standZ - 1));
-    lit.push(new THREE.BoxGeometry(5.2, 0.9, 0.1).translate(bx, 2.3, standZ - 0.9));   // monitors
-  });
-
   const mats = {
     shell: new THREE.MeshStandardMaterial({ color: 0x2b2f38, metalness: 0.5, roughness: 0.5, emissive: 0x0b0c10 }),
     roof: new THREE.MeshStandardMaterial({ color: 0x0e1014, roughness: 0.95, metalness: 0.0, emissive: 0x050608 }),
@@ -249,16 +186,6 @@ export function buildPitComplex(g, city, race, track) {
   };
   const add = (list, mat) => { if (list.length) g.add(new THREE.Mesh(place(mergeGeometries(list.map(x => (x.index ? x.toNonIndexed() : x)).map(x => { if (x.attributes.uv) x.deleteAttribute('uv'); return x; }))), mat)); };
   add(shell, mats.shell); add(roofSlab, mats.roof); add(glass, mats.glass); add(lit, mats.lit); add(dark, mats.dark); add(white, mats.white); add(led, mats.led); add(rail, mats.rail);
-  // team colours via vertex colour
-  const ag = accentGeos.map(({ g: geo, c }) => {
-    geo = geo.toNonIndexed(); geo.deleteAttribute('uv');
-    const n = geo.attributes.position.count, col = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) { col[i * 3] = c.r * 1.6; col[i * 3 + 1] = c.g * 1.6; col[i * 3 + 2] = c.b * 1.6; }
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    return geo;
-  });
-  g.add(new THREE.Mesh(place(mergeGeometries(ag)), new THREE.MeshBasicMaterial({ vertexColors: true })));
-  g.add(new THREE.Mesh(place(mergeGeometries(boards)), new THREE.MeshBasicMaterial({ map: boardTex, color: new THREE.Color(1.3, 1.3, 1.3) })));
 
   // SINGAPORE lettering in the roof bays, reading along the building
   const roofZ = front - DEPTH / 2 + 1, roofW = DEPTH + 4;

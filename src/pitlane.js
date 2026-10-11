@@ -12,6 +12,19 @@ import { PIT_LANE } from './config.js';
 
 const W = PIT_LANE;
 
+// Garage frontage: boxes in pit order, spaced evenly along a least-squares line through where the
+// cars actually stopped (the measured stops scatter by a few metres around each box).
+// -> { slope, centres: [u], from, to } or null
+export function frontage(boxes) {
+  const n = boxes.length;
+  if (n < 2) return null;
+  const mi = (n - 1) / 2, mu = boxes.reduce((a, b) => a + b.u, 0) / n;
+  let sxy = 0, sxx = 0;
+  boxes.forEach((b, i) => { sxy += (i - mi) * (b.u - mu); sxx += (i - mi) ** 2; });
+  const slope = sxy / sxx, centres = boxes.map((_, i) => mu + (i - mi) * slope);
+  return { slope, centres, from: centres[0] - slope / 2, to: centres[n - 1] + slope / 2 };
+}
+
 export class PitLane {
   constructor(track, data) {
     this.data = data;
@@ -40,10 +53,10 @@ export class PitLane {
     let a = 0; while (a < this.n - 1 && !clear(a)) a++;
     let b = this.n - 1; while (b > 0 && !clear(b)) b--;
     this.entryGap = this.u[a]; this.exitGap = this.u[b];
-    // working-lane / garage stretch: from just before the first box to just after the last
-    const bu = (data.boxes || []).map(x => x.u);
-    this.boxFrom = bu.length ? Math.min(...bu) - W.boxRun : data.limitFrom + 150;
-    this.boxTo = bu.length ? Math.max(...bu) + W.boxRun : data.limitTo - 30;
+    // working-lane / garage stretch: the garage frontage plus a little either side
+    const fr = frontage(data.boxes || []);
+    this.boxFrom = fr ? fr.from - 6 : data.limitFrom + 150;
+    this.boxTo = fr ? fr.to + 6 : data.limitTo - 30;
   }
 
   // index + fraction at lane distance u

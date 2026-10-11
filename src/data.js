@@ -1,6 +1,6 @@
 // Loads the pre-built race/city data and answers "what is happening at time t" queries.
 // Time t is seconds since race.t0 (grid, before the formation lap).
-import { GRID } from './config.js';
+import { GRID, PIT_LANE } from './config.js';
 
 export const TYRES = {
   SOFT: { c: '#ff2d2c', l: 'S' },
@@ -121,6 +121,90 @@ export class Race {
     const tr = this.track;
     tr.n = tr.center.length;
     this.grid = this.isRace ? this.buildGrid() : null;
+    this.pitLane = this.buildPitLane();
+  }
+
+  // The fitted pit lane in map coordinates (see scripts/fit_pit_lane.py), each team's box, and the
+  // stops: when each car stood in its box and for how long (OpenF1 stop_duration, races only).
+  buildPitLane() {
+    const D = this.track.pitlane;
+    if (!D || !D.center || D.center.length < 5) return null;
+    const c = D.center, n = c.length, u = new Float32Array(n), gx = new Float32Array(n), gy = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+      const a = c[Math.max(0, k - 1)], b = c[Math.min(n - 1, k + 1)];
+      const tx = b[0] - a[0], ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1;
+      // right of travel in map coords is (ty, -tx); garages on `side` of it
+      gx[k] = D.side * ty / l; gy[k] = -D.side * tx / l;
+      if (k) u[k] = u[k - 1] + Math.hypot(c[k][0] - c[k - 1][0], c[k][1] - c[k - 1][1]);
+    }
+    const boxes = new Map((D.boxes || []).map(b => [b.team, b]));
+    const lane = { c, n, u, gx, gy, boxes, wBox: (PIT_LANE.fast + PIT_LANE.garage) / 2 };
+    // stops: first stationary frame after entering the lane, near the team's own box
+    lane.stops = [];
+    const o = [0, 0, 0, 0];
+    for (const d of this.drivers) {
+      const box = boxes.get(d.team);
+      if (!box) continue;
+      for (const w of d.pitWindows) {
+        if (!(w.stop > 0)) continue;
+        // OpenF1's pit timestamp is close to the lane exit: search back across the lane time
+        for (let t = w.t - (w.lane || 30) - 8; t < w.t + 4; t += 0.25) {
+          if (this.tel(d.k, t).speed > 0) continue;
+          this.pos(d.k, t, o);
+          const q = this.laneNear(lane, o[0], o[1]);
+          if (q && Math.abs(q.u - box.u) < 14) lane.stops.push({ k: d.k, team: d.team, t0: t, t1: t + w.stop, u: box.u });
+          break;
+        }
+      }
+    }
+    lane.stops.sort((a, b) => a.t0 - b.t0);
+    return lane;
+  }
+
+  // nearest lane sample to map point (x, y): {k, u, dist, lat (toward the garages)}
+  laneNear(lane, x, y) {
+    let best = -1, bd = Infinity;
+    for (let k = 0; k < lane.n; k += 2) {
+      const d = (lane.c[k][0] - x) ** 2 + (lane.c[k][1] - y) ** 2;
+      if (d < bd) { bd = d; best = k; }
+    }
+    for (const k of [best - 1, best + 1]) {
+      if (k < 0 || k >= lane.n) continue;
+      const d = (lane.c[k][0] - x) ** 2 + (lane.c[k][1] - y) ** 2;
+      if (d < bd) { bd = d; best = k; }
+    }
+    // project onto the neighbouring segments, so u and the offset vary smoothly with the position
+    let res = null;
+    for (const k0 of [best - 1, best]) {
+      const k1 = k0 + 1;
+      if (k0 < 0 || k1 >= lane.n) continue;
+      const ax = lane.c[k0][0], ay = lane.c[k0][1], dx = lane.c[k1][0] - ax, dy = lane.c[k1][1] - ay;
+      const f = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+      const px = ax + dx * f, py = ay + dy * f, dist = Math.hypot(x - px, y - py);
+      if (!res || dist < res.dist) {
+        const gx = lane.gx[k0] + (lane.gx[k1] - lane.gx[k0]) * f, gy = lane.gy[k0] + (lane.gy[k1] - lane.gy[k0]) * f;
+        res = { k: k0, f, u: lane.u[k0] + (lane.u[k1] - lane.u[k0]) * f, dist, gx, gy, lat: (x - px) * gx + (y - py) * gy };
+      }
+    }
+    return res || { k: best, f: 0, u: lane.u[best], dist: Math.sqrt(bd), gx: lane.gx[best], gy: lane.gy[best], lat: 0 };
+  }
+
+  // Sideways move into the team's box while a car stops (OpenF1 does not resolve the fast lane from
+  // the working lane: stopped cars are recorded on the same line as moving ones). Only during the
+  // car's own pit window, only near its own box, never along the lane, so timing is untouched.
+  pitShift(k, t, out) {
+    const lane = this.pitLane;
+    if (!lane || !PIT_LANE.boxShift) return;
+    const d = this.drivers[k], box = lane.boxes.get(d.team);
+    if (!box || !d.pitWindows.some(w => t > w.t - (w.lane || 30) - 15 && t < w.t + 10)) return;
+    const q = this.laneNear(lane, out[0], out[1]);
+    if (q.dist > 7) return;
+    const sm = (a, b, x) => { const v = Math.min(1, Math.max(0, (x - a) / (b - a))); return v * v * (3 - 2 * v); };
+    const w = (1 - sm(PIT_LANE.boxShift[0], PIT_LANE.boxShift[1], Math.abs(q.u - box.u))) * (1 - sm(3, 7, q.dist));
+    if (w <= 0) return;
+    const off = w * (lane.wBox - box.lat);
+    out[0] += q.gx * off;
+    out[1] += q.gy * off;
   }
 
   // Grid slots in (arc length, lateral offset). The slot positions follow the regulation stagger
@@ -204,6 +288,7 @@ export class Race {
       out[1] = C.y - C.tx * d;
       out[2] = C.e;
       out[3] = 1;
+      if (this.pitLane) this.pitShift(k, t, out);
       return out;
     }
     // off track (or switching): convert every frame to x/y and interpolate those
@@ -222,6 +307,7 @@ export class Race {
     out[1] = cr(q[0][1], q[1][1], q[2][1], q[3][1]);
     out[2] = NaN;
     out[3] = 0;
+    if (this.pitLane) this.pitShift(k, t, out);
     return out;
   }
 

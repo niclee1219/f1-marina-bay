@@ -200,4 +200,12 @@ export const GRID = { spacing: 8, column: 2.8, poleSide: 'left', boxFront: 3.0, 
 // again (the entry / exit roads cross it before that); wallGap: lane edge to pit wall; boxRun:
 // working lane before the first / after the last box; entryLine / exitLine: white line on the
 // circuit before the entry and after the exit merge; bollards: per nose.
-export const PIT_LANE = { wall: 10.2, clear: 2.6, wallGap: 0.3, fast: 2.6, garage: 8.1, boxRun: 25, ramp: 15, entryLine: 45, exitLine: 45, bollards: 6 };
+// boxShift: OpenF1 records stopped cars on the same line as moving ones (it cannot resolve the
+// working lane), so during its own pit window a car eases sideways into its team's box, fully
+// within boxShift[0] m of the box and not at all beyond boxShift[1] m. Sideways only: timing and
+// the distance along the lane are the telemetry's. Set to null to play the raw positions.
+// garageDepth / bayHeight: the garages behind the doors; boxLen: painted box length.
+export const PIT_LANE = {
+  wall: 10.2, clear: 2.6, wallGap: 0.3, fast: 2.6, garage: 8.1, boxRun: 25, ramp: 15, entryLine: 45, exitLine: 45, bollards: 6,
+  boxShift: [6, 24], garageDepth: 12, bayHeight: 5.2, boxLen: 10,
+};

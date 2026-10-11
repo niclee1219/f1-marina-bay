@@ -1,0 +1,211 @@
+// Garages, painted pit boxes, overhead box rigs and pit-wall stands, laid out along the fitted pit
+// lane (pitlane.js) in lane coordinates: u along the lane, w across it toward the garages, h up.
+// Each team's painted box sits where its cars actually stopped (track.pitlane.boxes, measured per
+// season); the garage frontage is spaced evenly along the same order (a straight-line fit of the
+// box positions), two bays per team, one per driver, with the driver's number board above the door.
+// Text only: team names and driver numbers, no logos.
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { PIT_LANE } from './config.js';
+import { frontage } from './pitlane.js';
+
+const P = PIT_LANE;
+
+// unit box mapped into lane space: u0..u1 along, w0..w1 across, h0..h1 up
+function laneBox(L, u0, u1, w0, w1, h0, h1) {
+  const g = new THREE.BoxGeometry(1, 1, 1).toNonIndexed();
+  const pos = g.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    const u = u0 + (pos.getX(i) + 0.5) * (u1 - u0), h = h0 + (pos.getY(i) + 0.5) * (h1 - h0), w = w0 + (pos.getZ(i) + 0.5) * (w1 - w0);
+    L.point(u, w, h, v);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  return g;
+}
+
+// vertical quad facing the lane (toward -w) at w, spanning u0..u1, h0..h1, uv rect [a, b, c, d];
+// u reads left to right for someone in the lane facing the garages
+function laneSign(L, u0, u1, w, h0, h1, uv) {
+  const [ua, ub] = L.side < 0 ? [u0, u1] : [u1, u0];
+  const p = (u, h) => L.point(u, w, h);
+  const q = [p(ua, h0), p(ub, h0), p(ua, h1), p(ub, h1)];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(q.flatMap(v => [v.x, v.y, v.z]), 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute([uv[0], uv[1], uv[2], uv[1], uv[0], uv[3], uv[2], uv[3]], 2));
+  g.setIndex([0, 1, 2, 1, 3, 2]);
+  g.computeVertexNormals();
+  return g;
+}
+
+// flat quad on the lane: u0..u1, w0..w1; text reads from the pit wall (up = toward the garages)
+function laneDecal(L, u0, u1, w0, w1, uv, lift = 0.03) {
+  const [ua, ub] = L.side < 0 ? [u0, u1] : [u1, u0];
+  const p = (u, w) => L.point(u, w, lift);
+  const q = [p(ua, w0), p(ub, w0), p(ua, w1), p(ub, w1)];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(q.flatMap(v => [v.x, v.y, v.z]), 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute([uv[0], uv[1], uv[2], uv[1], uv[0], uv[3], uv[2], uv[3]], 2));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+  g.setIndex([0, 1, 2, 1, 3, 2]);
+  return g;
+}
+
+function tint(g, c, k = 1) {
+  const n = g.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = c.r * k; a[i * 3 + 1] = c.g * k; a[i * 3 + 2] = c.b * k; }
+  g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  return g;
+}
+
+function atlas(cells, cw, ch, draw) {
+  const c = document.createElement('canvas');
+  c.width = cw * cells.length; c.height = ch;
+  const x = c.getContext('2d');
+  cells.forEach((cell, i) => { x.save(); x.translate(i * cw, 0); draw(x, cell, cw, ch); x.restore(); });
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
+const fitText = (x, text, max, size, weight = 900, style = '') => {
+  let s = size;
+  do { x.font = `${style} ${weight} ${s}px "Titillium Web", sans-serif`; s -= 2; } while (x.measureText(text).width > max && s > 8);
+};
+
+// -> { frontage: [{team, color, box, c, width, drivers}], from, to } (lane u), or null
+export function garageLayout(L, race) {
+  const colors = new Map(race.drivers.map(d => [d.team, d.color]));
+  const boxes = (L.data.boxes || []).filter(b => colors.has(b.team));
+  const fr = frontage(boxes);
+  if (!fr) return null;
+  return {
+    frontage: boxes.map((b, i) => ({
+      team: b.team, color: colors.get(b.team), box: b.u, c: fr.centres[i], width: fr.slope,
+      drivers: race.drivers.filter(d => d.team === b.team).sort((x, y) => x.num - y.num),
+    })),
+    from: fr.from, to: fr.to, slope: fr.slope,
+  };
+}
+
+export function buildGarages(g, track, race) {
+  const L = track.lane;
+  const lay = L && garageLayout(L, race);
+  if (!lay) return null;
+  const G = P.garage, D = P.garageDepth, H = P.bayHeight;
+  const lit = [], solid = [], signs = [], decals = [], glows = [], nameDecals = [];
+  const white = new THREE.Color(0.86, 0.87, 0.9), grey = new THREE.Color(0.32, 0.33, 0.37), dark = new THREE.Color(0.07, 0.075, 0.085);
+  const epoxy = new THREE.Color(0.62, 0.63, 0.66), steel = new THREE.Color(0.55, 0.57, 0.62);
+
+  // ---- driver number boards (one per bay) and team names for the boxes
+  const bays = lay.frontage.flatMap(f => [0, 1].map(j => ({ f, j, d: f.drivers[j] })));
+  const boardTex = atlas(bays, 512, 128, (x, { f, d }, w, h) => {
+    x.fillStyle = '#0c0d11'; x.fillRect(0, 0, w, h);
+    x.fillStyle = f.color; x.fillRect(0, h - 14, w, 14); x.fillRect(0, 0, 10, h);
+    x.textBaseline = 'middle'; x.fillStyle = '#ffffff';
+    x.textAlign = 'left';
+    fitText(x, d ? String(d.num) : '', 150, 92, 900, 'italic');
+    x.fillText(d ? String(d.num) : '', 34, h / 2 - 4);
+    x.fillStyle = '#d9dce3';
+    fitText(x, d ? d.last.toUpperCase() : f.team.toUpperCase(), 300, 54, 700);
+    x.textAlign = 'right';
+    x.fillText(d ? d.last.toUpperCase() : f.team.toUpperCase(), w - 28, h / 2 - 2);
+  });
+  const nameTex = atlas(lay.frontage, 1024, 128, (x, f, w, h) => {
+    x.clearRect(0, 0, w, h);
+    x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    fitText(x, f.team.toUpperCase(), w - 60, 96, 900, 'italic');
+    x.fillText(f.team.toUpperCase(), w / 2, h / 2 + 4);
+  });
+
+  lay.frontage.forEach((f, ti) => {
+    const col = new THREE.Color(f.color);
+    const bayW = f.width / 2;
+    for (let j = 0; j < 2; j++) {
+      const a = f.c - f.width / 2 + j * bayW, b = a + bayW;
+      const a1 = a + 0.3, b1 = b - 0.3;
+      // floor, back wall (team colour low, white high), ceiling with light strips
+      lit.push(tint(laneBox(L, a1, b1, G, G + D, -0.05, 0.02), epoxy, 0.36));
+      lit.push(tint(laneBox(L, a1, b1, G + D - 0.2, G + D, 0, 2.6), col, 0.7));
+      lit.push(tint(laneBox(L, a1, b1, G + D - 0.2, G + D, 2.6, H), white, 0.36));
+      solid.push(tint(laneBox(L, a1, b1, G, G + D, H, H + 0.2), grey));
+      for (let r = 0; r < 3; r++) {
+        const w0 = G + 1.5 + r * (D - 3) / 2;
+        lit.push(tint(laneBox(L, a1 + 0.8, b1 - 0.8, w0, w0 + 0.35, H - 0.12, H - 0.02), new THREE.Color(1.15, 1.13, 1.08)));
+      }
+      // side walls: white with a team stripe
+      for (const e of [a, b - 0.3]) {
+        lit.push(tint(laneBox(L, e, e + 0.3, G, G + D, 0, H), white, 0.3));
+        lit.push(tint(laneBox(L, e - 0.01, e + 0.31, G + 0.5, G + D - 0.5, 1.2, 1.6), col, 0.9));
+      }
+      // tool chests and a tyre rack along the walls
+      solid.push(tint(laneBox(L, a1 + 0.2, a1 + 1.0, G + 3, G + 8, 0, 1.0), col, 0.8));
+      solid.push(tint(laneBox(L, b1 - 1.0, b1 - 0.2, G + 3, G + 8, 0, 1.0), dark));
+      solid.push(tint(laneBox(L, a1 + 1.5, b1 - 1.5, G + D - 1.4, G + D - 0.3, 0, 1.8), dark));
+      // open door: roller housing above the opening, team-colour jambs
+      solid.push(tint(laneBox(L, a, b, G - 0.15, G + 0.45, H, H + 1.3), dark));
+      solid.push(tint(laneBox(L, a, a + 0.35, G - 0.2, G + 0.2, 0, H), col, 0.9));
+      solid.push(tint(laneBox(L, b - 0.35, b, G - 0.2, G + 0.2, 0, H), col, 0.9));
+      // number board over the door
+      const k = ti * 2 + j, n = bays.length;
+      signs.push(laneSign(L, a + 0.6, b - 0.6, G - 0.17, H + 0.15, H + 1.2, [k / n, 0, (k + 1) / n, 1]));
+      // light spilling out of the open door onto the working lane
+      glows.push(laneDecal(L, a1, b1, G - 4.5, G, [0, 1, 1, 0], 0.035));   // brightest at the door
+    }
+
+    // ---- painted box where the team's cars stopped: tinted fill, outline, wheel marks, name
+    const bu = f.box, half = P.boxLen / 2, w0 = P.fast + 0.35, w1 = G - 0.35;
+    decals.push(tint(laneDecal(L, bu - half, bu + half, w0, w1, [0, 0, 1, 1], 0.025), col, 0.22));
+    const line = (u0, u1, v0, v1) => decals.push(tint(laneDecal(L, u0, u1, v0, v1, [0, 0, 1, 1], 0.03), col, 1.1));
+    line(bu - half, bu + half, w0, w0 + 0.22); line(bu - half, bu + half, w1 - 0.22, w1);
+    line(bu - half, bu - half + 0.22, w0, w1); line(bu + half - 0.22, bu + half, w0, w1);
+    // front and rear wheel marks across the car's track width
+    const wc = (w0 + w1) / 2;
+    for (const du of [1.8, -1.8]) for (const s of [-1, 1]) decals.push(tint(laneDecal(L, bu + du - 0.35, bu + du + 0.35, wc + s * 0.85 - 0.1, wc + s * 0.85 + 0.1, [0, 0, 1, 1], 0.032), white));
+    decals.push(tint(laneDecal(L, bu + 3.3, bu + 3.5, wc - 0.9, wc + 0.9, [0, 0, 1, 1], 0.032), white));
+    nameDecals.push(laneDecal(L, bu - half + 0.6, bu + half - 0.6, w1 - 1.25, w1 - 0.3, [ti / lay.frontage.length, 0, (ti + 1) / lay.frontage.length, 1], 0.034));
+
+    // ---- overhead box rig: column at the garage line behind the box, boom out over it with lights
+    const ru = bu - half - 0.4;
+    solid.push(tint(laneBox(L, ru - 0.2, ru + 0.2, G - 0.6, G - 0.2, 0, 5.9), steel));
+    solid.push(tint(laneBox(L, ru - 0.15, ru + 0.15, P.fast + 0.8, G - 0.2, 5.6, 5.9), steel));
+    solid.push(tint(laneBox(L, ru, bu + half - 0.8, wc - 0.15, wc + 0.15, 5.45, 5.7), steel));
+    lit.push(tint(laneBox(L, ru + 0.6, bu + half - 1.2, wc - 0.12, wc + 0.12, 5.38, 5.45), new THREE.Color(1.5, 1.48, 1.4)));
+    solid.push(tint(laneBox(L, ru - 0.16, ru + 0.16, P.fast + 0.8, G - 0.6, 5.9, 6.25), col, 0.9));
+
+    // ---- pit-wall stand opposite the team's garages: deck, desk with timing screens, canopy
+    const su = f.c, wi = L.inner(su), sw0 = wi - 2.1, sw1 = wi - 0.25, sl = Math.min(7, f.width * 0.32);
+    solid.push(tint(laneBox(L, su - sl / 2, su + sl / 2, sw0, sw1, 0, 0.9), dark));
+    solid.push(tint(laneBox(L, su - sl / 2, su + sl / 2, sw0, sw0 + 0.6, 0.9, 1.7), grey));
+    lit.push(tint(laneBox(L, su - sl / 2 + 0.3, su + sl / 2 - 0.3, sw0 + 0.62, sw0 + 0.66, 1.75, 2.35), new THREE.Color(0.35, 0.5, 0.75)));
+    for (const e of [su - sl / 2 + 0.1, su + sl / 2 - 0.25]) solid.push(tint(laneBox(L, e, e + 0.15, sw1 - 0.3, sw1 - 0.15, 0.9, 3.3), steel));
+    solid.push(tint(laneBox(L, su - sl / 2 - 0.3, su + sl / 2 + 0.3, sw0 - 0.3, sw1, 3.3, 3.55), col, 0.9));
+  });
+
+  // ---- closed frontage beyond the first and last garage, so the building front stays continuous
+  const ends = [[L.boxFrom - 40, lay.from], [lay.to, L.boxTo + 40]];
+  for (const [a, b] of ends) if (b > a) solid.push(tint(laneBox(L, a, b, G, G + D, 0, H + 1.3), grey));
+
+  const out = new THREE.Group();
+  out.name = 'garages';
+  out.add(new THREE.Mesh(mergeGeometries(lit), new THREE.MeshBasicMaterial({ vertexColors: true })));
+  out.add(new THREE.Mesh(mergeGeometries(solid), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.2, emissive: 0x0a0b0e })));
+  out.add(new THREE.Mesh(mergeGeometries(signs), new THREE.MeshBasicMaterial({ map: boardTex, color: new THREE.Color(1.25, 1.25, 1.25), side: THREE.DoubleSide })));
+  const decalMat = new THREE.MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
+  out.add(new THREE.Mesh(mergeGeometries(decals.map(x => { x.deleteAttribute('uv'); return x; })), decalMat));
+  out.add(new THREE.Mesh(mergeGeometries(nameDecals), new THREE.MeshBasicMaterial({ map: nameTex, transparent: true, depthWrite: false, color: new THREE.Color(0.85, 0.85, 0.85), polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 })));
+  // warm light pooling on the lane in front of each open door
+  const spill = (() => {
+    const c = document.createElement('canvas'); c.width = 4; c.height = 64;
+    const x = c.getContext('2d'), gr = x.createLinearGradient(0, 64, 0, 0);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 4, 64);
+    return new THREE.CanvasTexture(c);
+  })();
+  out.add(new THREE.Mesh(mergeGeometries(glows), new THREE.MeshBasicMaterial({ map: spill, color: new THREE.Color(0.22, 0.21, 0.19), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -10 })));
+  g.add(out);
+  return lay;
+}
+

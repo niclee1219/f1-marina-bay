@@ -14,6 +14,8 @@ import { Cars } from './cars.js';
 import { Bridges } from './bridges.js';
 import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
+import { buildGarages } from './garages.js';
+import { PitCrew } from './pitcrew.js';
 import { Crowd } from './crowd.js';
 import { Traffic } from './traffic.js';
 import { AutoDirector } from './autodirector.js';
@@ -85,6 +87,8 @@ async function boot() {
   viaducts.build(scene);
   await step(0.92, 'Rolling out the cars');
   const pit = buildPitComplex(track.group, city, race, track);
+  buildGarages(track.group, track, race);
+  const crew = new PitCrew(scene, race, track);
   const cars = new Cars(scene, race, track, bridges);
   const crowd = new Crowd(scene, track, race, pit.decks);
   const traffic = new Traffic(scene, city, track);
@@ -180,7 +184,7 @@ async function boot() {
   const autoDir = new AutoDirector(race, director, cars.cars, k => { state.focusK = k; });
   director.setMode('orbit', 0);
   ui.setCamera('orbit');
-  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, skyline, composer };
+  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, crew, skyline, composer };
   ui.setPlaying(state.playing);
   ui.setSpeed(1);
 
@@ -263,6 +267,7 @@ async function boot() {
     updateCity(dt);
     skyline.update(dt);
     crowd.update(dt, cars.cars, camera.position);
+    crew.update(t);
     traffic.update(dt);
     track.update(dt);
     // speed blur follows the focused car's speed (only while playing)

@@ -245,8 +245,9 @@ def main():
     for (yr, team), v in stops.items():
         a = np.array(v)
         # the densest cluster (the team's own box; queued or aborted stops fall outside it)
-        nb = [(np.abs(a[:, 0] - x) < 6).sum() for x in a[:, 0]]
-        c = a[np.abs(a[:, 0] - a[int(np.argmax(nb)), 0]) < 6]
+        # (teammates' recorded stop points differ by up to ~8 m: position noise at 4 Hz)
+        nb = [(np.abs(a[:, 0] - x) < 10).sum() for x in a[:, 0]]
+        c = a[np.abs(a[:, 0] - a[int(np.argmax(nb)), 0]) < 10]
         boxes.setdefault(yr, []).append({"team": team, "u": round(float(np.median(c[:, 0])), 1),
                                          "lat": round(float(np.median(c[:, 1])), 2), "n": int(len(c))})
     for yr in boxes:
