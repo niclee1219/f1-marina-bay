@@ -16,6 +16,7 @@ export async function loadAll() {
   const { sessions, id, race, city, bin, bridges } = await window.__boot.data;
   city.bridges = bridges.ways;
   city.bridgeDeck = bridges.deck;
+  race.trackPaint = await fetch('data/trackpaint.json').then(r => r.ok ? r.json() : null).catch(() => null);   // real-street paint on the circuit (scripts/build_trackpaint.py)
   race.roadPaint = await fetch('data/roadpaint.json').then(r => r.ok ? r.json() : null).catch(() => null);   // lanes, bus lanes, crossings (scripts/build_roadpaint.py)
   return { race: new Race(race, bin), city, sessions, id };
 }

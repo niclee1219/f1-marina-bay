@@ -331,19 +331,23 @@ export class Track {
     bumpTex.colorSpace = THREE.NoColorSpace;
     bumpTex.repeat.set(7, 1 / 2.4);
     const asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, bumpMap: bumpTex, bumpScale: 2.2, roughness: 0.88, metalness: 0.04, envMap: this.envMap || null, envMapIntensity: 0.14 });
-    // per-sample street info from the OSM road paint: lanes (in the race's direction), one-way, bus lane side
-    const RP = race.roadPaint;
-    const sampleInfo = (i) => {
-      if (!RP) return [4, 1, 0];
-      const k = Math.min(RP.n - 1, Math.round(i * RP.n / this.n));
-      return [RP.lanes[k] || 4, RP.one[k], RP.bus[k]];
+    // The street markings are baked in world space from the real streets under the circuit
+    // (scripts/build_trackpaint.py): paint = R white, G yellow, B red over (lateral, arc length), wear = worn wheel paths.
+    const TP = race.trackPaint;
+    const loadMask = (url) => {
+      const t = new THREE.TextureLoader().load(url);
+      t.flipY = false; t.colorSpace = THREE.NoColorSpace; t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.RepeatWrapping;
+      t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = true; t.anisotropy = 8;
+      return t;
     };
+    const paintU = { uPaint: { value: TP ? loadMask('data/trackpaint.png') : null }, uWear: { value: TP ? loadMask('data/trackwear.png') : null }, uPaintLen: { value: TP ? TP.length : 1 } };
     asphalt.onBeforeCompile = (s) => {
       s.uniforms.uZones = this.zoneUniform;
-      s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vTrackUv; attribute vec3 aStreet; flat varying vec3 vStreet;')
-        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvTrackUv = uv; vStreet = aStreet;');
+      Object.assign(s.uniforms, paintU);
+      s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vTrackUv;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvTrackUv = uv;');
       s.fragmentShader = s.fragmentShader.replace('#include <common>', `#include <common>
-          varying vec2 vTrackUv; flat varying vec3 vStreet; uniform vec4 uZones[${MAX_ZONES}];
+          varying vec2 vTrackUv; uniform sampler2D uPaint, uWear; uniform float uPaintLen; uniform vec4 uZones[${MAX_ZONES}];
           float zoneShade(float d){
             float v = 1.0;
             for (int k = 0; k < ${MAX_ZONES}; k++) {
@@ -366,15 +370,10 @@ export class Track {
           vec2 tm = vec2((vTrackUv.x - 0.5) * ${(2 * HALF).toFixed(2)}, vTrackUv.y);   // metres: across (0 = left kerb side), along
           float fwm = max(fwidth(tm.x), 1e-4), fwa = max(fwidth(tm.y), 1e-4);
           float patchN = vnoise(tm * vec2(0.33, 0.12)), patchN2 = vnoise(tm * vec2(0.9, 0.35) + 17.0);
-          // the street under the circuit: lanes in the race's direction, one-way flag, bus lane side
-          float lanesIn = vStreet.x, oneWay = vStreet.y, bus = vStreet.z;
-          float total = clamp(oneWay > 0.5 ? lanesIn : 2.0 * lanesIn, 2.0, 6.0);
-          float lw = ${(2 * HALF).toFixed(2)} / total;
-          float lx = tm.x + ${HALF.toFixed(2)};
-          // worn wheel paths in each lane (not a racing line): two dark strips either side of the lane centre
-          float lc = mod(lx, lw) - lw * 0.5;
-          float wear = exp(-pow(abs(lc) - 0.82, 2.0) / 0.12) * (0.55 + 0.45 * vnoise(tm * vec2(2.0, 0.07)));
-          float edge = paint(abs(lx - ${(2 * HALF).toFixed(2)}), 0.0, 1.0);
+          // what the real streets under the circuit have painted and worn (baked in world space)
+          vec2 tuv = vec2(vTrackUv.x, vTrackUv.y / uPaintLen);
+          vec3 pnt = texture2D(uPaint, tuv).rgb;
+          float wear = texture2D(uWear, tuv).r * (0.55 + 0.45 * vnoise(tm * vec2(2.0, 0.07)));
           // texture: lighter resurfaced patches, mottled tone, tar snakes (thin wavy repairs along the road), cracks
           float patchEdge = smoothstep(0.52, 0.55, patchN2) - smoothstep(0.62, 0.65, patchN2);
           float snake = paint(abs(vnoise(tm * vec2(0.55, 0.06) + 5.0) - 0.5) * 8.0, 0.045, fwm * 4.0) * step(0.55, vnoise(tm * vec2(0.2, 0.02) + 11.0));
@@ -385,19 +384,10 @@ export class Track {
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.012), clamp(snake * 0.8 + crack * 0.6, 0.0, 1.0));
           float seam = paint(abs(fract(tm.y / 37.0 + 0.37) - 0.5) * 37.0 - 18.5 + 0.03, 0.025, fwa);   // transverse joints
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.03), seam * 0.6);
-          // bus lane: the left or right kerb lane, tinted
-          float busMask = bus < -0.5 ? step(lx, lw) : bus > 0.5 ? step(${(2 * HALF).toFixed(2)} - lw, lx) : 0.0;
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.34, 0.05, 0.045) * (0.7 + 0.5 * patchN), busMask * (1.0 - 0.35 * wear));
-          // lane lines: dashed between lanes; a double solid centre line on a two-way street
-          float kk = clamp(floor(lx / lw + 0.5), 1.0, total - 1.0);
-          float ld = abs(lx - kk * lw);
-          float isCentre = (1.0 - oneWay) * (1.0 - step(0.01, abs(kk - total * 0.5)));
-          float dash = step(fract(tm.y / 12.0), 0.25);
-          float wl = mix(paint(ld, 0.075, fwm) * dash, paint(abs(ld - 0.17), 0.06, fwm), isCentre) * step(1.5, total);
-          // bus lane edge: a solid line along its inner side
-          float busLine = busMask > 0.5 ? 0.0 : paint(abs(lx - (bus < -0.5 ? lw : ${(2 * HALF).toFixed(2)} - lw)), 0.09, fwm) * step(0.5, abs(bus));
-          float lineCol = clamp(wl + busLine, 0.0, 1.0);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5), lineCol * 0.85 * (1.0 - 0.45 * wear));
+          // the streets' paint: white lines, yellow edge and kerb lines, red (the bus lane's inner line)
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5), pnt.r * 0.85 * (1.0 - 0.45 * wear));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.6, 0.45, 0.05), pnt.g * 0.9 * (1.0 - 0.3 * wear));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.05, 0.05), pnt.b * 0.9);
           // manhole covers: about one cell in three of 14 x 41 m
           vec2 mc = vec2(tm.x / 14.0 + 0.5, tm.y / 41.0);
           vec2 mid = floor(mc); vec2 mf = fract(mc);
@@ -419,31 +409,21 @@ export class Track {
           diffuseColor.rgb *= zs; totalEmissiveRadiance *= zs;`);
     };
     const asphaltGeo = this.ribbon(-HALF, HALF, 0);
-    {
-      const cnt = asphaltGeo.attributes.position.count / 2, st = new Float32Array(cnt * 6);
-      for (let c = 0; c < cnt; c++) {
-        const [a, b, d] = sampleInfo(c % this.n);
-        for (let k = 0; k < 2; k++) { st[(c * 2 + k) * 3] = a; st[(c * 2 + k) * 3 + 1] = b; st[(c * 2 + k) * 3 + 2] = d; }
-      }
-      asphaltGeo.setAttribute('aStreet', new THREE.BufferAttribute(st, 3));
-    }
     g.add(new THREE.Mesh(asphaltGeo, asphalt));
-    // painted details from the street data: pedestrian crossings, signal stop lines, BUS LANE stencils
-    if (RP) {
+    // painted details at the real places: pedestrian crossings, signal stop lines, BUS LANE stencils, each
+    // spanning the street's own extent (not the track's width)
+    if (TP) {
       const bar = new THREE.Color(0.78, 0.78, 0.78);
-      const zebraTex = canvasTex(448, 8, (c, w, h) => {
-        c.clearRect(0, 0, w, h); c.fillStyle = '#fff';
-        for (let k = 0; k < 28; k++) c.fillRect(k * 16, 0, 8, h);
-      });
-      zebraTex.wrapS = THREE.ClampToEdgeWrapping;
+      const zebraTex = canvasTex(16, 8, (c, w, h) => { c.clearRect(0, 0, w, h); c.fillStyle = '#fff'; c.fillRect(0, 0, 8, h); });
+      zebraTex.wrapS = THREE.RepeatWrapping;
       const zebraMat = decal(new THREE.MeshBasicMaterial({ map: zebraTex, color: bar, transparent: true, alphaTest: 0.4 }));
       const lineMat2 = decal(new THREE.MeshBasicMaterial({ color: bar }));
       const zebraG = [], lineG = [];
-      for (const z of RP.zebra) {
-        zebraG.push(this.paintQuad(z, -HALF, HALF, -1.6, 1.6, [0, 0, 1, 1], 0.045));
-        lineG.push(this.paintQuad(z, -HALF, HALF, -2.6, -2.35, [0, 0, 1, 1], 0.045), this.paintQuad(z, -HALF, HALF, 2.35, 2.6, [0, 0, 1, 1], 0.045));
+      for (const [z, d0, d1] of TP.zebra) {
+        zebraG.push(this.paintQuad(z, d0, d1, -1.6, 1.6, [0, 0, d1 - d0, 1], 0.045));
+        lineG.push(this.paintQuad(z, d0, d1, -2.6, -2.35, [0, 0, 1, 1], 0.045), this.paintQuad(z, d0, d1, 2.35, 2.6, [0, 0, 1, 1], 0.045));
       }
-      for (const z of RP.stop) lineG.push(this.paintQuad(z, -HALF, 0.5, -0.2, 0.2, [0, 0, 1, 1], 0.045));
+      for (const [z, d0, d1] of TP.stop) lineG.push(this.paintQuad(z, d0, d1, -0.2, 0.2, [0, 0, 1, 1], 0.045));
       if (zebraG.length) g.add(new THREE.Mesh(mergeGeometries(zebraG), zebraMat));
       if (lineG.length) g.add(new THREE.Mesh(mergeGeometries(lineG), lineMat2));
       // BUS LANE stencil: tall narrow capitals, reading from behind (top of the letters toward the travel direction)
@@ -452,15 +432,7 @@ export class Track {
         c.save(); c.translate(w / 2, h * 0.27); c.scale(1, 2.1); c.font = '900 40px "Titillium Web", sans-serif'; c.fillText('BUS', 0, 0); c.restore();
         c.save(); c.translate(w / 2, h * 0.72); c.scale(1, 2.1); c.font = '900 34px "Titillium Web", sans-serif'; c.fillText('LANE', 0, 0); c.restore();
       });
-      const busG = [];
-      const lwBus = (2 * HALF) / 4;
-      RP.text.forEach((z) => {
-        const k = Math.min(RP.n - 1, Math.round(z / RP.bin * RP.n / this.n));
-        const side = RP.bus[k];
-        if (!side) return;
-        const w = Math.min(2.4, lwBus * 0.62), cx = side < 0 ? -HALF + lwBus * 0.5 : HALF - lwBus * 0.5;
-        busG.push(this.paintQuad(z, cx - w / 2, cx + w / 2, -3.4, 3.4, [0, 0, 1, 1], 0.046));
-      });
+      const busG = TP.text.map(([z, dc, w]) => this.paintQuad(z, dc - w / 2, dc + w / 2, -3.4, 3.4, [0, 0, 1, 1], 0.046));
       if (busG.length) g.add(new THREE.Mesh(mergeGeometries(busG), decal(new THREE.MeshBasicMaterial({ map: busTex, color: new THREE.Color(0.7, 0.7, 0.7), transparent: true, alphaTest: 0.3 }))));
     }
     // painted verges up to the wall, as at Marina Bay: a yellow band on the track edge, a thin
