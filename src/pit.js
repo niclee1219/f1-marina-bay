@@ -65,12 +65,13 @@ function buildRoofLetters(g, L, word, o) {
       const along = L.point(mid + 5, 0).sub(L.point(mid - 5, 0));
       const forward = right.crossVectors(facing(mid), THREE.Object3D.DEFAULT_UP).dot(along) > 0;
       [...word].forEach((ch, k) => {
-        const geo = new TextGeometry(ch, { font, size: o.size, depth: DEPTH, curveSegments: 5, bevelEnabled: false });
+        const i = forward ? k : word.length - 1 - k;
+        const u = o.at(i);
+        // sized to the roof at this bay: the letter ends well short of the back parapet
+        const geo = new TextGeometry(ch, { font, size: Math.min(o.size, o.fit(u)), depth: DEPTH, curveSegments: 5, bevelEnabled: false });
         geo.computeBoundingBox();
         const bb = geo.boundingBox;
         geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -DEPTH);   // base centre, face at z = 0
-        const i = forward ? k : word.length - 1 - k;
-        const u = o.at(i);
         facing(u);                                                     // track -> paddock
         right.crossVectors(inw, THREE.Object3D.DEFAULT_UP).normalize();
         up.set(0, Math.cos(LEAN), 0).addScaledVector(inw, Math.sin(LEAN));
@@ -328,23 +329,12 @@ export function buildPitComplex(g, city, race, track) {
   box(u0, u1, G - 3.4, G - 3.0, HR, HR + 0.9, C(0.2, 0.21, 0.24));                                    // front parapet
   box(u0, u1, G - 3.42, G - 2.98, HR + 0.9, HR + 0.96, C(1.3, 0.75, 0.38), lit);
   solidPiece(u => Gd(u) + 0.1, u => Gd(u) + 0.5, HR, HR + 0.9, C(0.2, 0.21, 0.24));                // back parapet
-  // plant along the paddock edge: plant rooms, condenser banks, duct runs (not under race control)
-  const plantTo = u1 - 28;
-  for (let u = u0 + margin + 4; u < plantTo - 10; u += 26) {
-    const d = Math.min(dRoof(u), dRoof(u + 10)), wb = G + d - 2;
-    box(u, u + 9, wb - 7, wb, HR, HR + 3.2, C(0.33, 0.34, 0.37));                                     // plant room
-    box(u - 0.1, u + 9.1, wb - 7.1, wb + 0.1, HR + 3.2, HR + 3.45, C(0.16, 0.17, 0.19));
-    for (let k = 0; k < 4; k++) for (let j = 0; j < 2; j++) {                                           // condensers
-      const cu = u + 11 + k * 2.6, cw = wb - 1.4 - j * 2.6;
-      box(cu, cu + 2.1, cw - 2.1, cw, HR, HR + 1.1, C(0.5, 0.52, 0.55));
-      box(cu + 0.3, cu + 1.8, cw - 1.8, cw - 0.3, HR + 1.1, HR + 1.14, C(0.05, 0.05, 0.06));          // fan grille
-    }
-    box(u + 9, u + 26, wb - 8.6, wb - 7.8, HR, HR + 0.9, C(0.42, 0.44, 0.47));                         // duct
-  }
+  // (no plant rooms or condenser banks on the roof: the lettering owns it, as in the aerial photos)
   buildRoofLetters(g, L, letters, {
     at: i => u0 + margin + (i + 0.5) * bay,
     w: u => G + 0.14 * dRoof(u), h: HR + 0.1 + DEPTH,
     size: Math.min(0.8 * bay, 0.72 * K.depth, 20),
+    fit: u => 0.7 * (dRoof(u) - 0.14 * dRoof(u)),
   });
 
   // ---- paddock: the strip between the back of the building and the next road (OSM), never over

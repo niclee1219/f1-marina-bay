@@ -16,6 +16,7 @@ export async function loadAll() {
   const { sessions, id, race, city, bin, bridges } = await window.__boot.data;
   city.bridges = bridges.ways;
   city.bridgeDeck = bridges.deck;
+  race.roadPaint = await fetch('data/roadpaint.json').then(r => r.ok ? r.json() : null).catch(() => null);   // lanes, bus lanes, crossings (scripts/build_roadpaint.py)
   return { race: new Race(race, bin), city, sessions, id };
 }
 
@@ -157,13 +158,17 @@ export class Race {
       const box = boxes.get(d.team);
       if (!box) continue;
       for (const w of d.pitWindows) {
-        if (!(w.stop > 0)) continue;
         // OpenF1's pit timestamp is close to the lane exit: search back across the lane time
         for (let t = w.t - (w.lane || 30) - 8; t < w.t + 4; t += 0.25) {
           if (this.tel(d.k, t).speed > 0) continue;
           this.pos(d.k, t, o);
           const q = this.laneNear(lane, o[0], o[1]);
-          if (q && Math.abs(q.u - box.u) < 14) lane.stops.push({ k: d.k, team: d.team, t0: t, t1: t + w.stop, u: box.u });
+          if (q && Math.abs(q.u - box.u) < 14) {
+            // the recorded stop time when OpenF1 has one, else how long the car really sits still
+            let dur = w.stop > 0 ? w.stop : 0;
+            if (!dur) { let e = t; while (e < t + 12 && this.tel(d.k, e + 0.25).speed <= 0) e += 0.25; dur = Math.max(2.2, e - t); }
+            lane.stops.push({ k: d.k, team: d.team, t0: t, t1: t + dur, u: box.u });
+          }
           break;
         }
       }
@@ -367,12 +372,25 @@ export class Race {
     return i < 0 ? null : { leader: I[i][1], interval: I[i][2] };
   }
 
+  // The tyre compound in use at time t. A stint ends in the pit stop, so the new compound goes on
+  // when the car is at rest in its box (not at the lap boundary): the stop is the recorded rest time
+  // when the pit lane model found one, else the middle of the pit-lane transit.
   tyre(k, t) {
+    const d = this.drivers[k], S = d.stints;
+    if (!S.length) return null;
+    if (!d.stopTimes) {
+      S.sort((x, y) => x.sn - y.sn);
+      const rec = ((this.pitLane && this.pitLane.stops) || []).filter(x => x.k === k).map(x => x.t0);
+      d.stopTimes = d.pitWindows.map(w => {
+        const hit = rec.find(r => Math.abs(r - w.t) < (w.lane || 30) + 12);
+        return hit !== undefined ? hit : w.t - (w.lane || 25) * 0.5;
+      }).sort((x, y) => x - y);
+    }
+    let n = 0;
+    while (n < d.stopTimes.length && d.stopTimes[n] <= t) n++;
+    const s = S[Math.min(n, S.length - 1)];
     const lap = Math.max(1, this.lap(k, t));
-    const S = this.drivers[k].stints;
-    const s = S.find(s => lap >= s.a && lap <= s.b) || S[S.length - 1];
-    if (!s) return null;
-    return { comp: s.comp, age: s.age + (lap - s.a), sn: s.sn };
+    return { comp: s.comp, age: s.age + Math.max(0, lap - s.a), sn: s.sn };
   }
 
   inPit(k, t) {

@@ -4,15 +4,19 @@
 // bodywork shows the floodlights, grandstands and track around it. three.js converts the render
 // target to a prefiltered map by itself once `needsPMREMUpdate` is set, which is why roughness works.
 import * as THREE from 'three';
+import { QUALITY } from './quality.js';
 
-const SIZE = 64;
+// small maps: reflections of the floodlit surroundings are low-frequency; low-end GPUs get an even smaller one
+const SIZE = QUALITY.level === 'high' ? 64 : 32;
 
 export class Reflections {
   constructor(renderer, scene) {
     this.renderer = renderer;
     this.scene = scene;
     this.rt = new THREE.WebGLCubeRenderTarget(SIZE, { type: THREE.HalfFloatType, generateMipmaps: false });
-    this.cam = new THREE.CubeCamera(0.4, 3000, this.rt);
+    this.cam = new THREE.CubeCamera(0.4, 1500, this.rt);
+    // layer 0 only: skips the crowd, city roads, street furniture and traffic (layer 1), which is most of the draw calls
+    this.cam.children.forEach(c => c.layers.set(0));
     this.face = 0;
     this.seeded = false;
     this.hidden = [];

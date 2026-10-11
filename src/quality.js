@@ -30,8 +30,8 @@ const level = detect();
 
 export const QUALITY = {
   level,
-  // pit crews that run out for each stop (pitcrew.js)
-  crew: level === 'high',
+  // pit crews that run out for each stop (pitcrew.js): cheap instanced figures, on at every level
+  crew: true,
   // share of the crowd figures that are drawn (crowd.js)
   crowd: level === 'high' ? 1 : 0.45,
   // planar water reflections on at start (the toolbar's Reflections button still switches them):

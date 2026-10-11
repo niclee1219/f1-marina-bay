@@ -306,41 +306,44 @@ export class Track {
     this.group = g;
     this.atlas = sponsorAtlas();
 
-    // ---------- asphalt: dark aggregate, a rubbered-in racing line, patches, seams, manholes and the
-    // painted lane dividers of the public road; glossy enough to catch the floodlights
-    const asphaltTex = canvasTex(512, 512, (c, w, h) => {
-      c.fillStyle = '#0d0e10'; c.fillRect(0, 0, w, h);
+    // ---------- asphalt: coarse dark aggregate with a bump map, tar snakes, patches, joints, manholes and
+    // the paint of the real streets under the circuit (data/roadpaint.json, scripts/build_roadpaint.py):
+    // each street's lane count, one-way dashes or two-way double centre line, bus lanes, crossings and
+    // stop lines. Worn wheel paths follow each lane, not the racing line.
+    const noiseTex = (size, base, spread, chip, srgb) => canvasTex(size, size, (c, w, h) => {
+      c.fillStyle = base; c.fillRect(0, 0, w, h);
       const img = c.getImageData(0, 0, w, h);
-      for (let i = 0; i < img.data.length; i += 4) {      // fine aggregate: dark tar with pale chips
-        const v = (Math.random() - 0.5) * 14 + (Math.random() < 0.05 ? 20 : 0) - (Math.random() < 0.05 ? 7 : 0);
-        img.data[i] += v; img.data[i + 1] += v; img.data[i + 2] += v + 1;
+      for (let k = 0; k < img.data.length; k += 4) {
+        const v = (Math.random() - 0.5) * spread + (Math.random() < 0.07 ? chip : 0) - (Math.random() < 0.06 ? chip * 0.4 : 0);
+        img.data[k] += v; img.data[k + 1] += v; img.data[k + 2] += v + (srgb ? 1 : 0);
       }
       c.putImageData(img, 0, 0);
+      // a few larger stones and tar blotches
+      for (let k = 0; k < 90; k++) {
+        const g = Math.random() < 0.5 ? 0 : 255, r = 1 + Math.random() * 2.4;
+        c.fillStyle = `rgba(${g},${g},${g},${0.05 + Math.random() * 0.1})`;
+        c.beginPath(); c.arc(Math.random() * w, Math.random() * h, r, 0, 7); c.fill();
+      }
     });
+    const asphaltTex = noiseTex(512, '#101114', 30, 30, true);
     asphaltTex.repeat.set(4, 1 / 4);
-    const asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.5, metalness: 0.08, envMap: this.envMap || null, envMapIntensity: 0.3 });
-    // where the racing line runs: lateral offset (m) toward the inside of the bends, from the
-    // centreline's curvature smoothed over ~60 m, so the rubbered-in strip tracks the apexes
-    const lineOff = (() => {
-      const n = this.n, ds = this.length / n, out = new Float32Array(n);
-      for (let i = 0; i < n; i++) {
-        const a = this.T[(i + 1) % n], b = this.T[(i - 1 + n) % n], N = this.N[i];
-        out[i] = ((a.x - b.x) * N.x + (a.z - b.z) * N.z) / (2 * ds);
-      }
-      const W = Math.max(1, Math.round(30 / ds));
-      for (let pass = 0; pass < 2; pass++) {
-        const src = out.slice();
-        for (let i = 0; i < n; i++) { let t = 0; for (let k = -W; k <= W; k++) t += src[(i + k + n) % n]; out[i] = t / (2 * W + 1); }
-      }
-      for (let i = 0; i < n; i++) out[i] = Math.max(-4.2, Math.min(4.2, out[i] * 150));
-      return out;
-    })();
+    const bumpTex = noiseTex(256, '#808080', 120, 90, false);
+    bumpTex.colorSpace = THREE.NoColorSpace;
+    bumpTex.repeat.set(7, 1 / 2.4);
+    const asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, bumpMap: bumpTex, bumpScale: 2.2, roughness: 0.88, metalness: 0.04, envMap: this.envMap || null, envMapIntensity: 0.14 });
+    // per-sample street info from the OSM road paint: lanes (in the race's direction), one-way, bus lane side
+    const RP = race.roadPaint;
+    const sampleInfo = (i) => {
+      if (!RP) return [4, 1, 0];
+      const k = Math.min(RP.n - 1, Math.round(i * RP.n / this.n));
+      return [RP.lanes[k] || 4, RP.one[k], RP.bus[k]];
+    };
     asphalt.onBeforeCompile = (s) => {
       s.uniforms.uZones = this.zoneUniform;
-      s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vTrackUv; attribute float aLine; varying float vLine;')
-        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvTrackUv = uv; vLine = aLine;');
+      s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vTrackUv; attribute vec3 aStreet; flat varying vec3 vStreet;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvTrackUv = uv; vStreet = aStreet;');
       s.fragmentShader = s.fragmentShader.replace('#include <common>', `#include <common>
-          varying vec2 vTrackUv; varying float vLine; uniform vec4 uZones[${MAX_ZONES}];
+          varying vec2 vTrackUv; flat varying vec3 vStreet; uniform vec4 uZones[${MAX_ZONES}];
           float zoneShade(float d){
             float v = 1.0;
             for (int k = 0; k < ${MAX_ZONES}; k++) {
@@ -358,35 +361,49 @@ export class Track {
           // a painted line of half-width w at distance d, fading out once it is under a pixel wide
           float paint(float d, float w, float fw) { return (1.0 - smoothstep(w - fw, w + fw, d)) * clamp(2.0 * w / fw - 0.3, 0.0, 1.0); }`)
         .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-          roughnessFactor = clamp(roughnessFactor + 0.2 * patchN - 0.1 * rubber, 0.3, 0.9);`)
+          roughnessFactor = clamp(roughnessFactor + 0.12 * (patchN - 0.5) - 0.1 * wear, 0.45, 0.95);`)
         .replace('#include <color_fragment>', `#include <color_fragment>
-          vec2 tm = vec2((vTrackUv.x - 0.5) * ${(2 * HALF).toFixed(2)}, vTrackUv.y);   // metres: across (+ = outer edge), along
-          float fwm = max(fwidth(tm.x), 1e-4);
+          vec2 tm = vec2((vTrackUv.x - 0.5) * ${(2 * HALF).toFixed(2)}, vTrackUv.y);   // metres: across (0 = left kerb side), along
+          float fwm = max(fwidth(tm.x), 1e-4), fwa = max(fwidth(tm.y), 1e-4);
           float patchN = vnoise(tm * vec2(0.33, 0.12)), patchN2 = vnoise(tm * vec2(0.9, 0.35) + 17.0);
-          float lineD = abs(tm.x - vLine);
-          float rubber = exp(-lineD * lineD / 1.3) * 0.45 + exp(-lineD * lineD / 7.0) * 0.2;       // the rubbered-in line and its shoulders
-          float marbles = exp(-pow(abs(lineD - 3.6), 2.0) / 0.9) * 0.12;                              // loose rubber just off the line
-          float seam = paint(abs(fract(tm.y / 37.0 + 0.37) - 0.5) * 37.0 - 18.5 + 0.03, 0.025, fwidth(tm.y));   // transverse joints
-          float patchEdge = smoothstep(0.52, 0.55, patchN2) - smoothstep(0.62, 0.65, patchN2);          // resurfaced patches: a shade lighter
-          diffuseColor.rgb *= 1.0 + 0.25 * patchEdge;
-          diffuseColor.rgb *= 1.0 - 0.1 + 0.2 * patchN;                                                   // mottled tone
-          diffuseColor.rgb *= 1.0 - 0.5 * rubber;
-          diffuseColor.rgb += marbles * 0.04;
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.04), seam * 0.6);
-          // painted lane dividers of the public road: white, 3 m dash 9 m gap, a line every ~3.5 m
-          float lane = ${(2 * HALF / 4).toFixed(3)};
+          // the street under the circuit: lanes in the race's direction, one-way flag, bus lane side
+          float lanesIn = vStreet.x, oneWay = vStreet.y, bus = vStreet.z;
+          float total = clamp(oneWay > 0.5 ? lanesIn : 2.0 * lanesIn, 2.0, 6.0);
+          float lw = ${(2 * HALF).toFixed(2)} / total;
           float lx = tm.x + ${HALF.toFixed(2)};
-          float kk = clamp(floor(lx / lane + 0.5), 1.0, 3.0);
+          // worn wheel paths in each lane (not a racing line): two dark strips either side of the lane centre
+          float lc = mod(lx, lw) - lw * 0.5;
+          float wear = exp(-pow(abs(lc) - 0.82, 2.0) / 0.12) * (0.55 + 0.45 * vnoise(tm * vec2(2.0, 0.07)));
+          float edge = paint(abs(lx - ${(2 * HALF).toFixed(2)}), 0.0, 1.0);
+          // texture: lighter resurfaced patches, mottled tone, tar snakes (thin wavy repairs along the road), cracks
+          float patchEdge = smoothstep(0.52, 0.55, patchN2) - smoothstep(0.62, 0.65, patchN2);
+          float snake = paint(abs(vnoise(tm * vec2(0.55, 0.06) + 5.0) - 0.5) * 8.0, 0.045, fwm * 4.0) * step(0.55, vnoise(tm * vec2(0.2, 0.02) + 11.0));
+          float crack = paint(abs(vnoise(tm * vec2(3.0, 0.7) + 31.0) - 0.5) * 3.0, 0.02, fwm * 4.0) * step(0.62, patchN);
+          diffuseColor.rgb *= 1.0 + 0.3 * patchEdge;
+          diffuseColor.rgb *= 0.85 + 0.3 * patchN;
+          diffuseColor.rgb *= 1.0 - 0.42 * wear;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.012), clamp(snake * 0.8 + crack * 0.6, 0.0, 1.0));
+          float seam = paint(abs(fract(tm.y / 37.0 + 0.37) - 0.5) * 37.0 - 18.5 + 0.03, 0.025, fwa);   // transverse joints
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.03), seam * 0.6);
+          // bus lane: the left or right kerb lane, tinted
+          float busMask = bus < -0.5 ? step(lx, lw) : bus > 0.5 ? step(${(2 * HALF).toFixed(2)} - lw, lx) : 0.0;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.34, 0.05, 0.045) * (0.7 + 0.5 * patchN), busMask * (1.0 - 0.35 * wear));
+          // lane lines: dashed between lanes; a double solid centre line on a two-way street
+          float kk = clamp(floor(lx / lw + 0.5), 1.0, total - 1.0);
+          float ld = abs(lx - kk * lw);
+          float isCentre = (1.0 - oneWay) * (1.0 - step(0.01, abs(kk - total * 0.5)));
           float dash = step(fract(tm.y / 12.0), 0.25);
-          float wl = paint(abs(lx - kk * lane), 0.07, fwm) * dash;
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5), wl * 0.85 * (1.0 - 0.5 * rubber));
-          // manhole covers: one in about three cells of 14 x 41 m
+          float wl = mix(paint(ld, 0.075, fwm) * dash, paint(abs(ld - 0.17), 0.06, fwm), isCentre) * step(1.5, total);
+          // bus lane edge: a solid line along its inner side
+          float busLine = busMask > 0.5 ? 0.0 : paint(abs(lx - (bus < -0.5 ? lw : ${(2 * HALF).toFixed(2)} - lw)), 0.09, fwm) * step(0.5, abs(bus));
+          float lineCol = clamp(wl + busLine, 0.0, 1.0);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5), lineCol * 0.85 * (1.0 - 0.45 * wear));
+          // manhole covers: about one cell in three of 14 x 41 m
           vec2 mc = vec2(tm.x / 14.0 + 0.5, tm.y / 41.0);
           vec2 mid = floor(mc); vec2 mf = fract(mc);
           float mh = hash21(mid + 3.7);
           vec2 mpos = vec2(0.15 + 0.7 * hash21(mid + 9.1), 0.2 + 0.6 * hash21(mid + 5.3));
-          vec2 md = (mf - mpos) * vec2(14.0, 41.0);
-          float mr = length(md);
+          float mr = length((mf - mpos) * vec2(14.0, 41.0));
           float cover = step(0.62, mh) * (1.0 - smoothstep(0.34, 0.37, mr));
           float ring = step(0.62, mh) * paint(abs(mr - 0.37), 0.025, fwm);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05, 0.05, 0.055), cover);
@@ -395,7 +412,7 @@ export class Track {
           float along = fract(vTrackUv.y / ${TRUSS.every.toFixed(1)});
           float pa = (along - 0.5) * 3.2; float pool = exp(-pa * pa);   // (pow() of a negative base is NaN in GLSL)
           float side = 1.0 - smoothstep(0.0, 1.0, abs(vTrackUv.x - 0.5) * 2.0) * 0.25;
-          totalEmissiveRadiance += vec3(0.022, 0.023, 0.026) * (1.0 + 0.45 * pool) * side * (1.0 - 0.4 * rubber);   // floodlit tarmac, pools under the trusses
+          totalEmissiveRadiance += vec3(0.022, 0.023, 0.026) * (1.0 + 0.45 * pool) * side * (1.0 - 0.3 * wear);   // floodlit tarmac, pools under the trusses
           float px = (vTrackUv.x - 0.5) * 4.0; diffuseColor.rgb *= 1.0 - 0.2 * exp(-px * px);
           // bridge zones: the deck structure blocks part of the floodlighting
           float zs = zoneShade(vTrackUv.y);
@@ -403,11 +420,49 @@ export class Track {
     };
     const asphaltGeo = this.ribbon(-HALF, HALF, 0);
     {
-      const cnt = asphaltGeo.attributes.position.count / 2, la = new Float32Array(cnt * 2);
-      for (let c = 0; c < cnt; c++) la[c * 2] = la[c * 2 + 1] = lineOff[c % this.n];
-      asphaltGeo.setAttribute('aLine', new THREE.BufferAttribute(la, 1));
+      const cnt = asphaltGeo.attributes.position.count / 2, st = new Float32Array(cnt * 6);
+      for (let c = 0; c < cnt; c++) {
+        const [a, b, d] = sampleInfo(c % this.n);
+        for (let k = 0; k < 2; k++) { st[(c * 2 + k) * 3] = a; st[(c * 2 + k) * 3 + 1] = b; st[(c * 2 + k) * 3 + 2] = d; }
+      }
+      asphaltGeo.setAttribute('aStreet', new THREE.BufferAttribute(st, 3));
     }
     g.add(new THREE.Mesh(asphaltGeo, asphalt));
+    // painted details from the street data: pedestrian crossings, signal stop lines, BUS LANE stencils
+    if (RP) {
+      const bar = new THREE.Color(0.78, 0.78, 0.78);
+      const zebraTex = canvasTex(448, 8, (c, w, h) => {
+        c.clearRect(0, 0, w, h); c.fillStyle = '#fff';
+        for (let k = 0; k < 28; k++) c.fillRect(k * 16, 0, 8, h);
+      });
+      zebraTex.wrapS = THREE.ClampToEdgeWrapping;
+      const zebraMat = decal(new THREE.MeshBasicMaterial({ map: zebraTex, color: bar, transparent: true, alphaTest: 0.4 }));
+      const lineMat2 = decal(new THREE.MeshBasicMaterial({ color: bar }));
+      const zebraG = [], lineG = [];
+      for (const z of RP.zebra) {
+        zebraG.push(this.paintQuad(z, -HALF, HALF, -1.6, 1.6, [0, 0, 1, 1], 0.045));
+        lineG.push(this.paintQuad(z, -HALF, HALF, -2.6, -2.35, [0, 0, 1, 1], 0.045), this.paintQuad(z, -HALF, HALF, 2.35, 2.6, [0, 0, 1, 1], 0.045));
+      }
+      for (const z of RP.stop) lineG.push(this.paintQuad(z, -HALF, 0.5, -0.2, 0.2, [0, 0, 1, 1], 0.045));
+      if (zebraG.length) g.add(new THREE.Mesh(mergeGeometries(zebraG), zebraMat));
+      if (lineG.length) g.add(new THREE.Mesh(mergeGeometries(lineG), lineMat2));
+      // BUS LANE stencil: tall narrow capitals, reading from behind (top of the letters toward the travel direction)
+      const busTex = canvasTex(64, 256, (c, w, h) => {
+        c.clearRect(0, 0, w, h); c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.save(); c.translate(w / 2, h * 0.27); c.scale(1, 2.1); c.font = '900 40px "Titillium Web", sans-serif'; c.fillText('BUS', 0, 0); c.restore();
+        c.save(); c.translate(w / 2, h * 0.72); c.scale(1, 2.1); c.font = '900 34px "Titillium Web", sans-serif'; c.fillText('LANE', 0, 0); c.restore();
+      });
+      const busG = [];
+      const lwBus = (2 * HALF) / 4;
+      RP.text.forEach((z) => {
+        const k = Math.min(RP.n - 1, Math.round(z / RP.bin * RP.n / this.n));
+        const side = RP.bus[k];
+        if (!side) return;
+        const w = Math.min(2.4, lwBus * 0.62), cx = side < 0 ? -HALF + lwBus * 0.5 : HALF - lwBus * 0.5;
+        busG.push(this.paintQuad(z, cx - w / 2, cx + w / 2, -3.4, 3.4, [0, 0, 1, 1], 0.046));
+      });
+      if (busG.length) g.add(new THREE.Mesh(mergeGeometries(busG), decal(new THREE.MeshBasicMaterial({ map: busTex, color: new THREE.Color(0.7, 0.7, 0.7), transparent: true, alphaTest: 0.3 }))));
+    }
     // painted verges up to the wall, as at Marina Bay: a yellow band on the track edge, a thin
     // white line, then Singapore blue (references/). uv.x runs inner -> outer edge of each ribbon.
     const verge = (flip) => {

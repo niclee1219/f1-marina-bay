@@ -7,6 +7,10 @@
 import * as THREE from 'three';
 import { STEERING, CAMERA } from './config.js';
 import { TYRES } from './data.js';
+import { QUALITY } from './quality.js';
+
+// a mirror's camera: layer 0 only (no crowd, city roads, street furniture or traffic), short draw distance
+const mirrorCam = () => { const c = new THREE.PerspectiveCamera(38, 2, 0.5, QUALITY.level === 'high' ? 450 : 300); c.layers.set(0); return c; };
 
 const EYE = 0.74;                      // driver's eye height above the road (m)
 const AXLE = 1.5;                      // front axle ahead of the eyes (m)
@@ -131,10 +135,10 @@ export class Cockpit {
       for (let k = 0; k < uv.count; k++) {                 // map the shape to 0..1, flipped: a mirror image
         uv.setXY(k, 1 - (fg.attributes.position.getX(k) + 0.06) / 0.12, (fg.attributes.position.getY(k) + 0.033) / 0.066);
       }
-      const rt = new THREE.WebGLRenderTarget(160, 80, { depthBuffer: true });
+      const rt = new THREE.WebGLRenderTarget(QUALITY.level === 'high' ? 160 : 112, QUALITY.level === 'high' ? 80 : 56, { depthBuffer: true });
       const face = add(fg, new THREE.MeshBasicMaterial({ map: rt.texture, color: 0xdddddd }), g);
       face.position.z = 0.0105;
-      this.mirrors.push({ g, s, rt, cam: new THREE.PerspectiveCamera(38, 2, 0.5, 450) });
+      this.mirrors.push({ g, s, rt, cam: mirrorCam() });
     }
     this.mirrorTick = 0;
 
