@@ -90,6 +90,51 @@ function buildRoofLetters(g, L, word, o) {
     .catch(err => console.warn('roof letters:', err));
 }
 
+// A solid between w0(u) and w1(u) over u0..u1, h0..h1, sampled every `step` metres, so a back edge
+// that runs oblique to the lane is one smooth wall instead of a staircase of boxes. w0 / w1 are
+// numbers or functions of u. Non-indexed, flat normals, no uv (to merge with laneBox pieces).
+function laneSolid(L, u0, u1, w0, w1, h0, h1, step = 2) {
+  const f0 = typeof w0 === 'function' ? w0 : () => w0, f1 = typeof w1 === 'function' ? w1 : () => w1;
+  const N = Math.max(1, Math.ceil((u1 - u0) / step)), pos = [];
+  const P = (u, w, h) => { const v = L.point(u, w, h); return [v.x, v.y, v.z]; };
+  const quad = (a, b, c, d) => pos.push(...a, ...b, ...c, ...b, ...d, ...c);
+  for (let j = 0; j < N; j++) {
+    const ua = u0 + (u1 - u0) * j / N, ub = u0 + (u1 - u0) * (j + 1) / N;
+    const A = [f0(ua), f1(ua)], B = [f0(ub), f1(ub)];
+    quad(P(ua, A[0], h1), P(ub, B[0], h1), P(ua, A[1], h1), P(ub, B[1], h1));   // top
+    quad(P(ua, A[1], h0), P(ub, B[1], h0), P(ua, A[1], h1), P(ub, B[1], h1));   // back (w1)
+    quad(P(ub, B[0], h0), P(ua, A[0], h0), P(ub, B[0], h1), P(ua, A[0], h1));   // front (w0)
+  }
+  for (const [u, s] of [[u0, 1], [u1, -1]]) {                                      // end caps
+    const a = P(u, f0(u), h0), b = P(u, f1(u), h0), c = P(u, f0(u), h1), d = P(u, f1(u), h1);
+    s > 0 ? quad(b, a, d, c) : quad(a, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  // face winding depends on which side of the lane the garages are: make every normal point out
+  g.computeVertexNormals();
+  if (L.side > 0) {
+    const p = g.attributes.position.array;
+    for (let i = 0; i < p.length; i += 9) for (let k = 0; k < 3; k++) [p[i + 3 + k], p[i + 6 + k]] = [p[i + 6 + k], p[i + 3 + k]];
+    g.computeVertexNormals();
+  }
+  return g;
+}
+
+// a unit shape (inside the -0.5..0.5 cube) bent onto the lane like laneBox
+function laneShape(L, geo, u0, u1, w0, w1, h0, h1) {
+  const g = geo.index ? geo.toNonIndexed() : geo, pos = g.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    L.point(u0 + (pos.getX(i) + 0.5) * (u1 - u0), w0 + (pos.getZ(i) + 0.5) * (w1 - w0), h0 + (pos.getY(i) + 0.5) * (h1 - h0), v);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  return g;
+}
+// barrel-vault roof along x: half cylinder rising from y = -0.5 to 0.5
+const arch = () => new THREE.CylinderGeometry(0.5, 0.5, 1, 12, 1, true, 0, Math.PI).rotateZ(Math.PI / 2).scale(1, 2, 1).translate(0, -0.5, 0);
+
 // one draw group of a non-indexed geometry, as its own geometry
 function slice(geo, start, count) {
   const out = new THREE.BufferGeometry();
@@ -111,23 +156,61 @@ export function buildPitComplex(g, city, race, track) {
   const u0 = L.bldFrom ?? lay.from - K.endRun, u1 = L.bldTo ?? lay.to + K.endRun;
   const depth = u => Math.max(GD + 4, L.depthAt(u, K.depth));
   const H0 = P.bayHeight + 1.4, H1 = H0 + 4.2, H2 = H1 + 4, H3 = H2 + 4, HR = H3 + 0.8;
-  const solid = [], lit = [], glass = [], rail = [], glows = [];
+  const solid = [], lit = [], glass = [], rail = [], glows = [], tents = [];
   const C = (r, gg, b) => new THREE.Color(r, gg, b);
   const concrete = C(0.5, 0.52, 0.56), white = C(0.86, 0.87, 0.9), dark = C(0.08, 0.085, 0.1), warm = C(1.0, 0.82, 0.58);
   const box = (a, b, w0, w1, h0, h1, col, list = solid, k = 1) => list.push(tint(laneBox(L, a, b, w0, w1, h0, h1), col, k));
-  // the same piece in 4 m chunks, its back edge following the footprint (back = metres in front of it)
   const STEP = 4;
-  const chunks = (a, b, f) => { for (let u = a; u < b - 0.01; u += STEP) f(u, Math.min(b, u + STEP), depth(u + STEP / 2)); };
 
-  // ---- building body
-  chunks(u0, u1, (a, b, d) => {
-    box(a, b, G + GD, G + d, 0, H0, concrete);                                    // back-of-house
-    box(a, b, G - 1.6, G + d, H0 - 0.15, H0 + 0.3, white);                        // slab over the garages
-    box(a, b, G + 0.8, G + d, H0 + 0.3, H1, concrete);                            // offices
-    glass.push(laneBox(L, a, b, G - 1.0, G + d - 2, H1, H3));                     // hospitality suites
-    box(a, b, G - 3.4, G + d + 0.5, H3, HR, dark);                                // roof, overhanging the balcony
-  });
+  // ---- building body: continuous along the footprint's back edge (Gd), the paddock face set back
+  // behind its balconies (PB), so the Paddock Club suites have a deck on the paddock side too
+  const Gd = u => G + depth(u), PB = u => Gd(u) - 3.2;
+  const solidPiece = (w0, w1, h0, h1, col, list = solid, k = 1) => list.push(tint(laneSolid(L, u0, u1, w0, w1, h0, h1), col, k));
+  solidPiece(G + GD, u => Gd(u) - 1.2, 0, H0, concrete);                          // back-of-house
+  solidPiece(G - 1.6, Gd, H0 - 0.15, H0 + 0.3, white);                            // slab over the garages
+  solidPiece(G + 0.8, PB, H0 + 0.3, H1, concrete);                                // offices
+  glass.push(laneSolid(L, u0, u1, G - 1.0, PB, H1, H3));                          // hospitality suites
+  solidPiece(G - 3.4, u => Gd(u) + 0.5, H3, HR, dark);                            // roof, overhanging both balconies
   for (let u = u0 + 1.5; u < u1 - 1.5; u += 3.0) box(u, u + 2.4, G + 0.7, G + 0.8, H0 + 1.3, H1 - 0.5, warm, lit, 0.45);   // office windows
+
+  // ---- Paddock Club: the paddock face. Glazed suites on levels 2-3 with warm rooms behind the
+  // glass, balconies with glass rails, offices on level 1 with PADDOCK CLUB lettering, and the teams'
+  // back doors at ground level under canvas awnings
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let u = u0 + 0.6; u < u1 - 3; u += 3) {
+    const pb = PB(u + 1.5);
+    box(u - 0.1, u + 0.1, pb - 0.05, pb + 0.1, H1, H3, white);                                       // mullions
+    for (const [ha, hb] of [[H1 + 0.3, H2 - 0.25], [H2 + 0.25, H3 - 0.3]]) {
+      const k = rnd();
+      if (k > 0.12) box(u + 0.25, u + 2.75, pb + 0.02, pb + 0.06, ha, hb, warm, lit, 0.22 + 0.3 * k);    // lit suite
+    }
+    if ((u - u0) % 12 < 3) {                                                                         // ground floor
+      const gd = Gd(u + 1.5) - 1.2;
+      box(u + 0.4, u + 2.6, gd, gd + 0.08, 0.1, 3.6, C(0.42, 0.44, 0.47));                         // roller door
+      box(u + 0.2, u + 2.8, gd, gd + 2.4, 3.9, 4.05, C(0.9, 0.9, 0.92));                            // awning
+      box(u + 0.6, u + 2.4, gd + 0.1, gd + 0.3, 3.7, 3.85, C(1.4, 1.2, 0.9), lit);                   // door light
+    }
+  }
+  box(u0, u1, G + 0.8, G + 0.9, H2 - 0.2, H2 + 0.1, white);
+  for (const h of [H1, H2]) {                                                                       // paddock-side balconies
+    solidPiece(PB, u => Gd(u) - 0.2, h - 0.3, h + 0.05, white);
+    rail.push(laneSolid(L, u0, u1, u => Gd(u) - 0.3, u => Gd(u) - 0.2, h + 0.05, h + 1.1));
+    solidPiece(u => Gd(u) - 0.32, u => Gd(u) - 0.18, h + 1.1, h + 1.17, C(0.85, 0.7, 0.5), lit);
+  }
+  const clubTex = canvasTex(1024, 96, (x, w, h) => {
+    x.fillStyle = '#121418'; x.fillRect(0, 0, w, h);
+    x.fillStyle = '#f2f2f2'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = '700 58px "Titillium Web", sans-serif';
+    if ('letterSpacing' in x) x.letterSpacing = '14px';
+    x.fillText('PADDOCK CLUB', w / 2, h / 2 + 3);
+  });
+  const clubSigns = [];
+  for (let u = u0 + 30; u < u1 - 40; u += 70) {
+    const w = PB(u + 9) + 0.15;
+    clubSigns.push(laneSign(L, u + 18, u, w, H0 + 1.0, H1 - 0.6, [0, 0, 1, 1]));   // reversed u: faces the paddock
+  }
+  g.add(new THREE.Mesh(mergeGeometries(clubSigns), new THREE.MeshBasicMaterial({ map: clubTex, color: C(0.9, 0.9, 0.9), side: THREE.DoubleSide })));
   // balconies at both hospitality levels
   for (const h of [H1, H2]) {
     box(u0, u1, G - 3.6, G - 1.0, h - 0.25, h + 0.1, white);
@@ -249,7 +332,7 @@ export function buildPitComplex(g, city, race, track) {
   }
   box(u0, u1, G - 3.4, G - 3.0, HR, HR + 0.9, C(0.2, 0.21, 0.24));                                    // front parapet
   box(u0, u1, G - 3.42, G - 2.98, HR + 0.9, HR + 0.96, C(1.3, 0.75, 0.38), lit);
-  chunks(u0, u1, (a, b, d) => box(a, b, G + d + 0.1, G + d + 0.5, HR, HR + 0.9, C(0.2, 0.21, 0.24)));    // back parapet
+  solidPiece(u => Gd(u) + 0.1, u => Gd(u) + 0.5, HR, HR + 0.9, C(0.2, 0.21, 0.24));                // back parapet
   // plant along the paddock edge: plant rooms, condenser banks, duct runs (not under race control)
   const plantTo = u1 - 28;
   for (let u = u0 + margin + 4; u < plantTo - 10; u += 26) {
@@ -274,6 +357,7 @@ export function buildPitComplex(g, city, race, track) {
   const centre = L.point((u0 + u1) / 2, G + 20);
   const segs = [];
   for (const r of city.roads) {
+    if (r.k === 'service') continue;   // the paddock's own access lanes (scripts/fetch_road_tags.py)
     for (let i = 2; i < r.p.length; i += 2) {
       const ax = r.p[i - 2], ay = r.p[i - 1], bx = r.p[i], by = r.p[i + 1];
       if (Math.hypot((ax + bx) / 2 - centre.x, (ay + by) / 2 + centre.z) < 400) segs.push([ax, ay, bx, by, r.w / 2 + 2]);
@@ -295,7 +379,17 @@ export function buildPitComplex(g, city, race, track) {
     while (w < wb + K.width && free(m, w) && free(u, w) && free(Math.min(u1, u + STEP), w)) w += 1;
     room.push({ a: u, b: Math.min(u1, u + STEP), wb, wr: w - 1 });
   }
-  for (const r of room) if (r.wr - r.wb > 6) box(r.a, r.b, r.wb, r.wr, -3, -0.12, C(0.24, 0.25, 0.28));   // paving
+  // paving: one strip over the stretches with room, its far edge following the room per chunk
+  const roomOf = u => room.find(r => u >= r.a && u < r.b) || room[room.length - 1];
+  const paved = [];
+  for (const r of room) {
+    const ok = r.wr - r.wb > 6, last = paved[paved.length - 1];
+    if (ok && last && last.b === r.a) last.b = r.b; else if (ok) paved.push({ a: r.a, b: r.b });
+  }
+  for (const s of paved) {
+    const geo = L.strip(s.a, s.b, u => roomOf(u).wb - 0.5, u => roomOf(u).wr, 0.04, STEP);
+    g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x3a3c41, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 })));
+  }
   // hospitality units in team order along the far side of the paddock, facing the building, where
   // the strip is deep enough; trucks where it is not
   const teams = lay.frontage;
@@ -324,10 +418,20 @@ export function buildPitComplex(g, city, race, track) {
       box(a, b, w0 - 0.3, w0, K.unitHeight - 1.3, K.unitHeight, col, solid, 0.9);
       names.push(laneSign(L, a + 2, b - 2, w0 - 0.35, K.unitHeight - 1.2, K.unitHeight - 0.1, [0, 1 - (k + 1) / teams.length, 1, 1 - k / teams.length]));
       box(a + unitLen / 2 - 3, a + unitLen / 2 + 3, w0 - 2.5, w0, 3.0, 3.2, white);   // awning
-      // walkway lamps between the building and the units
-      const wl = (wb + w0) / 2;
+      // white marquee (barrel roof) in front of the unit where the strip allows, as in the aerial photo
+      if (space >= K.unitDepth + 19) {
+        const m0 = w0 - 9.5, m1 = w0 - 2.6;
+        box(a + 1, b - 1, m0, m1, 0, 2.8, C(0.82, 0.83, 0.85), tents);
+        tents.push(tint(laneShape(L, arch(), a + 1, b - 1, m0, m1, 2.8, 4.8), C(0.92, 0.93, 0.95)));
+        box(a + 2, b - 2, m0 - 0.02, m0, 0.3, 2.4, warm, lit, 0.35);                    // lit side wall
+      }
+      // walkway with lamps and people between the building and the units
+      const wl = wb + 4;
+      box(a - 2, b + 2, wb + 1.5, wb + 6.5, -0.11, -0.05, C(0.42, 0.43, 0.45));
       box(a - 0.08, a + 0.08, wl - 0.08, wl + 0.08, 0, 5, C(0.3, 0.32, 0.36));
       box(a - 0.35, a + 0.35, wl - 0.35, wl + 0.35, 4.9, 5.15, C(1.7, 1.5, 1.1), lit);
+      const p = L.point((a + b) / 2, wl, 0), { t } = L.frame((a + b) / 2);
+      out.decks.push({ x: p.x, z: p.z, y: p.y, len: unitLen + 2, wid: 4, angle: Math.atan2(-t.z, t.x), density: 0.07, tag: 'paddock' });
       a = b + 4;
     } else if (tk < teams.length && space >= 7) {
       // a team truck parked along the back of the building
@@ -345,6 +449,7 @@ export function buildPitComplex(g, city, race, track) {
   grp.add(new THREE.Mesh(mergeGeometries(solid), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.65, metalness: 0.15, emissive: 0x0b0c0f })));
   grp.add(new THREE.Mesh(mergeGeometries(lit), new THREE.MeshBasicMaterial({ vertexColors: true })));
   grp.add(new THREE.Mesh(mergeGeometries(glass), new THREE.MeshStandardMaterial({ color: 0x22303f, metalness: 0.8, roughness: 0.12, emissive: new THREE.Color(0.26, 0.2, 0.13) })));
+  if (tents.length) grp.add(new THREE.Mesh(mergeGeometries(tents), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, emissive: 0x2a2a2c, side: THREE.DoubleSide })));
   grp.add(new THREE.Mesh(mergeGeometries(rail), new THREE.MeshStandardMaterial({ color: 0x9fb4c8, transparent: true, opacity: 0.35, metalness: 0.5, roughness: 0.1 })));
   // floodlight glow: camera-facing points
   const gg = new THREE.BufferGeometry();
