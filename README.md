@@ -65,6 +65,12 @@ built from real OpenStreetMap footprints.
   multi-storey pit building has hospitality balconies, the podium over the pit lane, race control
   and one SINGAPORE sign; the paddock behind it has team hospitality units and trucks (`src/pit.js`).
   Crews and crowd density follow `?quality=low|high` (auto-low on low-power devices).
+- **Singapore identity** (`src/identity.js`): the Turn 1-3 run-off painted deep blue with white and
+  gold stripes and a SINGAPORE wordmark, seated grandstands along the pit straight, floodlight
+  trusses, debris fencing with a top rail, corner number boards, DRS detection / activation boards
+  (2025) and marshal posts at MultiViewer's 16 light positions whose panels follow race control
+  (yellow / double yellow per sector, green after a clear, red, SC / VSC):
+  `python3 scripts/fit_marshal_posts.py` maps them onto the track.
 - **Crowds, cars**: ~21k instanced spectators that wave and flash
   phone lights as cars pass (`src/crowd.js`); detailed cars in clean team colours, numbers, brake
   glow and kerb sparks. Sponsor decals (`LIVERY_DECALS`) are only drawn for a team whose livery has

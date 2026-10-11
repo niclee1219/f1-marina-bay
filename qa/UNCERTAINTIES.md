@@ -63,3 +63,38 @@ OSM data that lacks the detail. Each is a single value in `src/config.js` or `sr
 - No livery reference images were supplied, so all teams run in clean team colours and no decals
   are drawn. Decal slot positions in `LIVERY_DECALS` were placed on the generic body and will need
   adjusting per team when references are added.
+
+## Grid, pit lane and pit building (qa/grid-pit/)
+Measured from the data: grid spacing (7.9 m fit, 8 m used), where the pole car stopped, the pit
+lane path (328 stops averaged), where it peels off and rejoins, the 80 km/h limiter stretch, each
+team's box position and the pit order (both seasons match the previous year's championship),
+stop times, marshal light and sector positions (MultiViewer, 2 m corner-fit RMS).
+Guessed:
+- Pole side: left (inside of Turn 1, pit side), read off the start photo shot from T1 back down the
+  grid. OpenF1 puts every grid car on the centreline, so the data cannot confirm it.
+- Grid column offset (2.8 m either side), box shape, and the start line 9 m ahead of the pole car.
+  The control line (s = 0, where OpenF1 laps start) is drawn as the chequered finish / timing line;
+  pole stops ~84 m after it, so the start line is a separate line.
+- Fast lane / working lane split and garage depth: OpenF1 records stopped cars on the same line as
+  moving ones, so the fitted path is used as the fast lane and the working lane (5.5 m) and garage
+  line are standard dimensions. Cars ease sideways into their box during their own stop
+  (PIT_LANE.boxShift) for the same reason.
+- Bollard count and spacing, pit exit light position (6 m after the limiter line), entry / exit
+  line lengths on the circuit (45 m).
+- Garage frontage is spaced evenly (a fit of the measured boxes); real bay widths may differ.
+- Pit building: storey heights, balcony depth, podium position (mid-building) and size, race
+  control at the pit exit end, the paddock layout (two rows of hospitality units and the trucks).
+- Pit crew: 16 figures at standard positions; their run-out and walk-back times are invented,
+  the time at the car is OpenF1's stop_duration.
+
+## Singapore identity
+- Turn 1-3 run-off width (24 m), extent and stripe widths are read off the reference photos; the
+  stripe order (white, gold, thin orange on deep blue) follows them loosely.
+- Floodlight truss length (14 m), height and four heads per truss.
+- Corner boards: placed 35 m before each apex on the outside wall; colours chosen to match.
+- DRS detection points are not in OpenF1: each board is 60 m before the last corner ahead of
+  its zone. Activation boards are at the start of each measured zone.
+- Marshal posts: MultiViewer's light positions are on the track line (1-2 m off), so which side
+  of the track each post stands on is a guess (and moved off the pit lane where needed).
+  Panels light only for what race control reports (yellow / double yellow per sector, green for
+  8 s after a clear, red, SC / VSC, chequered); blue flags are per car and are not shown.

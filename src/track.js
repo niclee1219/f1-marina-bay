@@ -1,7 +1,7 @@
 // Circuit geometry, sampled every ~2 m from the same smooth curve the cars are positioned on.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CROWD, HAZE, GRID, PIT_LANE } from './config.js';
+import { CROWD, HAZE, GRID, PIT_LANE, RUNOFF, TRUSS } from './config.js';
 import { PitLane, buildPitLane } from './pitlane.js';
 import { sponsorAtlas, boardTexture, titleSponsor, BOARD_UV_GLSL, logoImage } from './sponsors.js';
 
@@ -93,6 +93,44 @@ export class Track {
     this.overhead = [];
     this.half = HALF;
     this.initPitLane(race.track.pitlane);
+    this.initRunoff();
+  }
+
+  // Run-off: the wall stands further back on the outside of some corners (config RUNOFF; the Turn
+  // 1-3 complex at Marina Bay). runoff[side][i]: extra metres beyond WALL, eased in and out.
+  initRunoff() {
+    this.runoff = { 1: new Float32Array(this.n), [-1]: new Float32Array(this.n) };
+    this.runoffZones = [];
+    for (const z of RUNOFF.zones) {
+      const a = this.corners.find(c => c.n === z.from), b = this.corners.find(c => c.n === z.to);
+      if (!a || !b) continue;
+      const i0 = a.i + Math.round(z.before / this.bin), i1 = b.i + Math.round(z.after / this.bin);
+      const tp = Math.round(z.taper / this.bin);
+      for (let i = i0 - tp; i <= i1 + tp; i++) {
+        const k = ((i % this.n) + this.n) % this.n;
+        const e = i < i0 ? (i - (i0 - tp)) / tp : i > i1 ? ((i1 + tp) - i) / tp : 1;
+        const w = z.width * e * e * (3 - 2 * e);
+        this.runoff[z.side][k] = Math.max(this.runoff[z.side][k], w);
+      }
+      this.runoffZones.push({ ...z, i0: i0 - tp, i1: i1 + tp });
+    }
+  }
+
+  // distance from the centreline to the wall at sample i on side sign
+  wallAt(i, sign) {
+    const k = ((i % this.n) + this.n) % this.n;
+    return WALL + this.runoff[sign > 0 ? 1 : -1][k];
+  }
+
+  // signed offsets of the wall line (plus extra metres) on side sign, for ribbon() / wall()
+  wallLine(sign, extra = 0) {
+    const key = `w${sign}:${extra}`;
+    if (this.offsetCache.has(key)) return this.offsetCache.get(key);
+    const base = this.offsets(sign * (WALL + extra)), r = this.runoff[sign > 0 ? 1 : -1];
+    const out = new Float32Array(this.n);
+    for (let i = 0; i < this.n; i++) out[i] = base[i] + sign * r[i];
+    this.offsetCache.set(key, out);
+    return out;
   }
 
   // Pit lane fitted from telemetry (pitlane.js). laneD[i]: signed offset of the lane centre beside
@@ -168,6 +206,7 @@ export class Track {
   // Lateral offset o at every sample, pulled in on the inside of tight bends so offset
   // curves (walls, fences, run-off) never fold back on themselves.
   offsets(o) {
+    if (typeof o !== 'number') return o;   // a per-sample offset array (wallLine)
     if (this.offsetCache.has(o)) return this.offsetCache.get(o);
     const n = this.n, a = new Float32Array(n);
     for (let i = 0; i < n; i++) {
@@ -193,9 +232,15 @@ export class Track {
 
   at(i, o, y = 0, out = new THREE.Vector3()) {
     i = ((i % this.n) + this.n) % this.n;
-    const off = o === 0 ? 0 : this.offsets(o)[i];
+    const off = o === 0 ? 0 : this.offsetCache.has(o) ? this.offsetCache.get(o)[i] : this.offsetAt(i, o);
     const p = this.P[i], nrm = this.N[i];
     return out.set(p.x + nrm.x * off, p.y + y, p.z + nrm.z * off);
+  }
+
+  // one offset sample without caching a whole array: pulled in on the inside of tight bends
+  offsetAt(i, o) {
+    const k = this.curv[i];
+    return o * k > 0 ? Math.sign(o) * Math.min(Math.abs(o), 0.8 / Math.abs(k)) : o;
   }
 
   // ribbon between lateral offsets o0..o1 (metres, + = N side), over index range
@@ -305,8 +350,8 @@ export class Track {
       if (flip) { t.repeat.x = -1; t.offset.x = 1; }
       return new THREE.MeshStandardMaterial({ map: t, roughness: 0.85, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.07 });
     };
-    g.add(new THREE.Mesh(this.ribbon(HALF, WALL, -0.03), verge(false)));
-    g.add(new THREE.Mesh(this.ribbon(-WALL, -HALF, -0.03), verge(true)));
+    g.add(new THREE.Mesh(this.ribbon(HALF, this.wallLine(1), -0.03), verge(false)));
+    g.add(new THREE.Mesh(this.ribbon(this.wallLine(-1), -HALF, -0.03), verge(true)));
 
     // ---------- white edge lines
     const lineMat = decal(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.8, 0.8, 0.8) }));
@@ -346,11 +391,12 @@ export class Track {
     // boards keep the atlas cell's 4:1 shape on the 1.15 m wall
     // (open on the pit side where the pit entry and exit roads cross the wall line)
     const runsL = this.wallRuns(WALL), runsR = this.wallRuns(-WALL);
-    const wallL = mergeGeometries(runsL.map(([a, b]) => this.wall(WALL, 1.15, 0, a, b, -1 / 4.6)));
-    const wallR = mergeGeometries(runsR.map(([a, b]) => this.wall(-WALL, 1.15, 0, a, b, 1 / 4.6)));
+    const WL = this.wallLine(1), WR = this.wallLine(-1);
+    const wallL = mergeGeometries(runsL.map(([a, b]) => this.wall(WL, 1.15, 0, a, b, -1 / 4.6)));
+    const wallR = mergeGeometries(runsR.map(([a, b]) => this.wall(WR, 1.15, 0, a, b, 1 / 4.6)));
     g.add(new THREE.Mesh(wallL, wallMatBack), new THREE.Mesh(wallR, wallMat));
     const capMat = new THREE.MeshStandardMaterial({ color: 0x9aa0aa, roughness: 0.8, emissive: 0x15161a });
-    g.add(new THREE.Mesh(mergeGeometries([...runsL.map(([a, b]) => this.ribbon(WALL - 0.12, WALL + 0.12, 1.15, a, b)), ...runsR.map(([a, b]) => this.ribbon(-WALL - 0.12, -WALL + 0.12, 1.15, a, b))]), capMat));
+    g.add(new THREE.Mesh(mergeGeometries([...runsL.map(([a, b]) => this.ribbon(this.wallLine(1, -0.12), this.wallLine(1, 0.12), 1.15, a, b)), ...runsR.map(([a, b]) => this.ribbon(this.wallLine(-1, 0.12), this.wallLine(-1, -0.12), 1.15, a, b))]), capMat));
     const fenceTex = canvasTex(64, 64, (c, w, h) => {
       c.clearRect(0, 0, w, h);
       c.strokeStyle = 'rgba(170,180,200,0.38)'; c.lineWidth = 1;
@@ -359,16 +405,19 @@ export class Track {
         c.beginPath(); c.moveTo(i, h); c.lineTo(i + h, 0); c.stroke();
       }
     });
-    const fence = new THREE.Mesh(mergeGeometries([...runsL.map(([a, b]) => this.wall(WALL + 0.05, 3.0, 1.15, a, b, 1 / 3)), ...runsR.map(([a, b]) => this.wall(-WALL - 0.05, 3.0, 1.15, a, b, 1 / 3))]),
+    const FL = this.wallLine(1, 0.05), FR = this.wallLine(-1, 0.05);
+    const fence = new THREE.Mesh(mergeGeometries([...runsL.map(([a, b]) => this.wall(FL, 3.0, 1.15, a, b, 1 / 3)), ...runsR.map(([a, b]) => this.wall(FR, 3.0, 1.15, a, b, 1 / 3))]),
       new THREE.MeshBasicMaterial({ map: fenceTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, opacity: 0.3 }));
     g.add(fence);
     this.instances(g, 'post', new THREE.CylinderGeometry(0.06, 0.06, 3.1, 5).translate(0, 2.7, 0),
       new THREE.MeshStandardMaterial({ color: 0x8c929c, metalness: 0.7, roughness: 0.4 }),
-      this.every(4, [WALL + 0.1, -WALL - 0.1]).filter(it => !this.pitGap(it.i, it.o)));
+      this.every(4, [1, -1]).filter(it => !this.pitGap(it.i, it.o)).map(it => ({ i: it.i, o: it.o * (this.wallAt(it.i, it.o) + 0.1) })));
+    // debris fence top rail
+    const railMat = new THREE.MeshStandardMaterial({ color: 0x9aa2ae, metalness: 0.7, roughness: 0.4 });
+    g.add(new THREE.Mesh(mergeGeometries([...runsL.map(([a, b]) => this.wall(this.wallLine(1, 0.1), 0.08, 4.12, a, b)), ...runsR.map(([a, b]) => this.wall(this.wallLine(-1, 0.1), 0.08, 4.12, a, b))]), railMat));
 
     this.buildBarriers(g);
     this.buildLights(g);
-    this.buildMarshals(g);
     this.buildBrakeBoards(g);
     this.buildStartGantries(g);
     this.buildGantries(g);
@@ -425,7 +474,7 @@ export class Track {
     const items = [];
     for (const c of this.corners) {
       const outside = -(Math.sign(this.curv[c.i]) || 1);
-      for (let k = -24; k <= 8; k += 1) if (!this.pitGap(c.i + k, outside)) items.push({ i: c.i + k, o: outside * (WALL - 0.55) });
+      for (let k = -24; k <= 8; k += 1) if (!this.pitGap(c.i + k, outside)) items.push({ i: c.i + k, o: outside * (this.wallAt(c.i + k, outside) - 0.55) });
     }
     const pal = ['#d32f2f', '#1e4fd8', '#e9e9e9', '#1e4fd8'];
     this.instances(g, 'tecpro', new THREE.BoxGeometry(1.95, 1.0, 0.9).translate(0, 0.68, 0),
@@ -433,21 +482,35 @@ export class Track {
   }
 
   buildLights(g) {
-    // Floodlight towers every ~32 m, alternating sides, arm reaching over the barrier.
-    // (none under the expressway decks: those spans are lit from the deck soffit, see viaducts.js)
-    // beside the pit lane the towers stand on the pit wall instead; none on the entry / exit roads
-    const items = this.every(32, [1]).map((it, k) => ({ i: it.i, o: (k % 2 ? 1 : -1) * (WALL + 1.3) }))
+    // Floodlight trusses every ~32 m, alternating sides, as along the Marina Bay circuit: a pole
+    // behind the wall, an arm over the barrier and a truss running along the track with a row of
+    // lamp heads (config TRUSS). None under the expressway decks (lit from the deck soffit, see
+    // viaducts.js); beside the pit lane they stand on the pit wall; none on the pit entry / exit.
+    const T = TRUSS;
+    const items = this.every(T.every, [1]).map((it, k) => ({ i: it.i, o: (k % 2 ? 1 : -1) }))
       .filter(it => !this.underDeck(it.i) && !this.pitGap(it.i, it.o))
-      .map(it => (this.inPitLane(it.i, it.o) ? { i: it.i, o: Math.sign(it.o) * (WALL + 0.45) } : it));
-    const poleGeo = new THREE.CylinderGeometry(0.22, 0.32, 11, 6).translate(0, 5.5, 0);
-    const armGeo = new THREE.BoxGeometry(0.2, 0.2, 5.5).translate(0, 11, 2.75);
-    this.instances(g, 'poles', mergeGeometries([poleGeo, armGeo]), new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.6, roughness: 0.5 }), items);
-    this.instances(g, 'heads', new THREE.BoxGeometry(2.6, 0.35, 1.2).translate(0, 10.8, 5.2),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.15, 2.0) }), items);
+      .map(it => ({ i: it.i, o: it.o * (this.inPitLane(it.i, it.o * (WALL + 1.3)) ? WALL + 0.45 : this.wallAt(it.i, it.o) + 1.3) }));
+    const H = T.height, R = T.reach, half = T.length / 2;
+    const steel = [
+      new THREE.CylinderGeometry(0.22, 0.32, H + 0.6, 6).translate(0, (H + 0.6) / 2, 0),
+      new THREE.BoxGeometry(0.22, 0.22, R + 0.4).translate(0, H, R / 2),
+      new THREE.BoxGeometry(T.length, 0.12, 0.12).translate(0, H + 0.35, R),
+      new THREE.BoxGeometry(T.length, 0.12, 0.12).translate(0, H - 0.35, R),
+      new THREE.BoxGeometry(T.length, 0.1, 0.1).translate(0, H, R + 0.45),
+    ];
+    // web: verticals and diagonals between the chords
+    for (let x = -half; x <= half + 0.01; x += T.length / 6) {
+      steel.push(new THREE.BoxGeometry(0.08, 0.7, 0.08).translate(x, H, R));
+      if (x < half - 0.1) steel.push(new THREE.BoxGeometry(0.06, 0.06, 1).rotateY(Math.PI / 2).scale(T.length / 6, 1, 1).rotateZ(Math.atan2(0.7, T.length / 6)).translate(x + T.length / 12, H, R));
+    }
+    this.instances(g, 'poles', mergeGeometries(steel.map(x => x.toNonIndexed())), new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.6, roughness: 0.5 }), items);
+    const heads = [];
+    for (let k = 0; k < T.heads; k++) heads.push(new THREE.BoxGeometry(1.5, 0.3, 0.9).translate(-half + (k + 0.5) * T.length / T.heads, H - 0.55, R));
+    this.instances(g, 'heads', mergeGeometries(heads), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.15, 2.0) }), items);
     // light shafts in the humid night air under each head: brightest at the lamp, fading to the
     // ground and away near the camera (so onboard / chase views never flash through them)
     if (HAZE.shafts > 0) {
-      const cone = new THREE.ConeGeometry(5.5, 10.4, 18, 1, true).translate(0, 10.6 - 5.2, 5.2);
+      const cone = mergeGeometries([-1, 1].map(x => new THREE.ConeGeometry(4.6, H - 0.6, 18, 1, true).translate(x * T.length / 4, (H - 0.6) / 2, R)));
       const shaftMat = new THREE.ShaderMaterial({
         uniforms: { c: { value: new THREE.Color(1.0, 0.95, 0.85).multiplyScalar(HAZE.shafts) } },
         vertexShader: `varying float vH; varying float vD;
@@ -795,7 +858,10 @@ export class Track {
     const lightMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.1, 1.9) });
     const plan = [[1, 90], [3, 70], [7, 80], [10, 70], [13, 60], [14, 80], [16, 70], [18, 80], [19, 60]];
     const placements = plan.map(([n, len]) => ({ i: this.corners.find(c => c.n === n)?.i, len, tag: n === 1 ? 'T1' : `T${n}` })).filter(p => p.i != null);
-    placements.push({ i: Math.floor(this.n * 0.985), len: 110, side: 1, tag: 'pit' }); // opposite the pits
+    // the main grandstands along the pit straight, opposite the pits (config CROWD.mainStands)
+    for (const s of CROWD.mainStands.at) {
+      placements.push({ i: Math.round((((s % this.length) + this.length) % this.length) / this.bin) % this.n, len: CROWD.mainStands.len, side: -this.pitSide, tag: 'main' });
+    }
     // the Padang stand faces the track from the field side
     const pd = CROWD.padangStand;
     const pi = Math.round(pd.s / this.bin) % this.n;
@@ -805,7 +871,7 @@ export class Track {
     this.standInfo = [];
     placements.forEach((pl, k) => {
       const outside = pl.side ?? -(Math.sign(this.curv[pl.i]) || 1);
-      const p = this.at(pl.i, outside * (WALL + 5));
+      const p = this.at(pl.i, outside * (this.wallAt(pl.i, outside) + 5));
       this.stands.push({ p: p.clone(), r: pl.len / 2 + 25 });
       const nrm = this.N[pl.i];
       const st = new THREE.Group();

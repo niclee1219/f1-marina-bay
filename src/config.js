@@ -112,12 +112,14 @@ export const BRIDGES = [
 // Spectator density per stand (0..1) and walkway crowds along the barriers.
 export const CROWD = {
   baseDensity: 0.55,
-  stands: { T1: 1.0, pit: 0.95, padang: 1.0 },  // tags set in Track.buildGrandstands
+  stands: { T1: 1.0, main: 0.95, padang: 1.0 }, // tags set in Track.buildGrandstands
+  // seated grandstands along the pit straight, opposite the pits: centres (arc length from the line, m)
+  mainStands: { at: [-150, -25, 100], len: 115 },
   teamShare: 0.32,                               // fraction wearing a team colour
+  seated: 0.72,                                  // grandstand figures are seated: height share of a standing one
   walkways: [
     // corner number (or 'start') +- metres, which side ('out' | 'in'), density
     { at: 1, from: -140, to: 40, side: 'out', density: 0.9 },
-    { at: 'start', from: -160, to: 120, side: 'in', density: 0.8 },
     { at: 10, from: -260, to: 20, side: 'out', density: 0.85 },
     { at: 7, from: -60, to: 60, side: 'out', density: 0.6 },
     { at: 14, from: -40, to: 60, side: 'out', density: 0.5 },
@@ -205,3 +207,22 @@ export const PADDOCK = {
   depth: 30, endRun: 30, mastEvery: 24, podiumShift: 0, podiumWidth: 20, sign: 'SINGAPORE', signLength: 56,
   gap: 6, width: 72, walkway: 10, unitLength: 18, unitDepth: 14, unitHeight: 9.5, trackClear: 24,
 };
+
+// Run-off where the wall stands further back (track.js initRunoff): on the outside of the Turn 1-3
+// complex (outside of T1 and T3 is the right of travel, +1), measured against the
+// corner apexes; the area is painted in the Singapore blue and gold scheme (identity.js). Widths are
+// read off the reference photos, not measured.
+export const RUNOFF = {
+  zones: [
+    { from: 1, to: 3, before: -70, after: 25, side: 1, width: 24, taper: 35, paint: true, word: 'SINGAPORE' },
+  ],
+};
+
+// Floodlight trusses lining the circuit (track.js buildLights): spacing, truss length along the
+// track, height and reach over the barrier, lamp heads per truss.
+export const TRUSS = { every: 32, length: 14, height: 11, reach: 5.2, heads: 4 };
+
+// DRS boards (identity.js): activation where cars opened DRS; detection is not in OpenF1, so it is
+// placed this many metres before the last corner ahead of each zone (a guess). side: +1 = right of
+// travel, flipped where the pit lane is.
+export const DRS_BOARDS = { side: 1, detectBefore: 60 };

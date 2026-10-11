@@ -16,6 +16,7 @@ import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
 import { buildGarages } from './garages.js';
 import { PitCrew } from './pitcrew.js';
+import { Identity } from './identity.js';
 import { Crowd } from './crowd.js';
 import { Traffic } from './traffic.js';
 import { AutoDirector } from './autodirector.js';
@@ -90,6 +91,7 @@ async function boot() {
   buildGarages(track.group, track, race);
   track.inPaddock = pit.inPaddock;
   const crew = new PitCrew(scene, race, track);
+  const identity = new Identity(track, race, track.group);
   const cars = new Cars(scene, race, track, bridges);
   const crowd = new Crowd(scene, track, race, pit.decks);
   const traffic = new Traffic(scene, city, track);
@@ -185,7 +187,7 @@ async function boot() {
   const autoDir = new AutoDirector(race, director, cars.cars, k => { state.focusK = k; });
   director.setMode('orbit', 0);
   ui.setCamera('orbit');
-  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, crew, skyline, composer };
+  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, crew, identity, skyline, composer };
   ui.setPlaying(state.playing);
   ui.setSpeed(1);
 
@@ -249,6 +251,7 @@ async function boot() {
     skyline.update(dt);
     crowd.update(dt, cars.cars, camera.position);
     crew.update(t);
+    identity.update(t, clock.elapsedTime);
     traffic.update(dt);
     track.update(dt);
     // speed blur follows the focused car's speed (only while playing)

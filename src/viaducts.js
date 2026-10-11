@@ -218,7 +218,9 @@ export class Viaducts {
 
   // over the circuit or the pit lane (the pit exit runs under the ECP), where no pier may stand
   overTrack(p, margin = 0) {
-    if (this.track.nearest(p.x, p.z).d < WALL + 2 + margin) return true;
+    const { i, d } = this.track.nearest(p.x, p.z);
+    const side = Math.sign((p.x - this.track.P[i].x) * this.track.N[i].x + (p.z - this.track.P[i].z) * this.track.N[i].z) || 1;
+    if (d < this.track.wallAt(i, side) + 2 + margin) return true;
     const L = this.track.lane;
     if (!L) return false;
     const reach = PIT_LANE.garage + 2 + margin;

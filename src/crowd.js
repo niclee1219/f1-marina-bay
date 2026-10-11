@@ -112,7 +112,8 @@ export class Crowd {
         for (let z = -s.len / 2 + 0.4; z < s.len / 2 - 0.4; z += 0.55) {
           if (this.rnd() > dens * QUALITY.crowd) continue;
           q.setFromAxisAngle(up, (this.rnd() - 0.5) * 0.35);
-          m.compose(new THREE.Vector3(x, y, z + (this.rnd() - 0.5) * 0.12), q, new THREE.Vector3(1, 0.92 + this.rnd() * 0.16, 1));
+          // seated: a shorter figure on the tier (CROWD.seated)
+          m.compose(new THREE.Vector3(x, y, z + (this.rnd() - 0.5) * 0.12), q, new THREE.Vector3(1, CROWD.seated * (0.92 + this.rnd() * 0.16), 1));
           items.push(m.clone().premultiply(s.group.matrixWorld));
         }
       }
@@ -133,7 +134,7 @@ export class Crowd {
         for (let row = 0; row < 3; row++) {
           for (let sub = 0; sub < 3; sub++) {
             if (this.rnd() > w.density * (1 - row * 0.2) * QUALITY.crowd) continue;
-            const off = side * (10.2 + 3.2 + row * 0.9 + this.rnd() * 0.3);
+            const off = side * (track.wallAt(k, side) + 3.2 + row * 0.9 + this.rnd() * 0.3);
             const along = (sub / 3 - 0.5) * track.bin;
             const T = track.T[k];
             const x = P.x + N.x * off + T.x * along, z = P.z + N.z * off + T.z * along;

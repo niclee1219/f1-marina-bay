@@ -409,6 +409,33 @@ export class Race {
     return { best, pb, last };
   }
 
+  // What the marshal light panels show at time t, from race control: { all, sectors } where all is
+  // '' | 'red' | 'sc' | 'vsc' | 'chequered' (every panel) and sectors maps a marshal sector number
+  // ('TRACK SECTOR n') to 'yellow' | 'dyellow' | 'green' (green for a few seconds after it clears).
+  marshalState(t, greenFor = 8) {
+    let all = '';
+    const yellow = new Map(), green = new Map();
+    let allGreenUntil = -1;
+    for (const [mt, , cat, flag, msg] of this.race_control) {
+      if (mt > t) break;
+      if (cat === 'SafetyCar') {
+        if (/DEPLOYED/.test(msg)) all = /VIRTUAL|VSC/.test(msg) ? 'vsc' : 'sc';
+        if (/ENDING|IN THIS LAP|WITHDRAWN/.test(msg) && (all === 'sc' || all === 'vsc')) { all = ''; allGreenUntil = mt + greenFor; }
+      }
+      if (cat !== 'Flag') continue;
+      const sec = +(String(msg).match(/TRACK SECTOR (\d+)/) || [])[1];
+      if ((flag === 'YELLOW' || flag === 'DOUBLE YELLOW') && sec) { yellow.set(sec, flag === 'YELLOW' ? 'yellow' : 'dyellow'); green.delete(sec); }
+      else if (flag === 'CLEAR' && sec) { yellow.delete(sec); green.set(sec, mt + greenFor); }
+      else if (flag === 'GREEN') { yellow.clear(); if (all === 'red') all = ''; allGreenUntil = mt + greenFor; }
+      else if (flag === 'RED') all = 'red';
+      else if (flag === 'CHEQUERED') all = 'chequered';
+    }
+    const sectors = new Map(yellow);
+    for (const [n, until] of green) if (t < until && !sectors.has(n)) sectors.set(n, 'green');
+    if (t < allGreenUntil && !all) sectors.set('*', 'green');
+    return { all, sectors };
+  }
+
   flagState(t) {
     // walk race control flag messages to find the current track status
     let status = 'GREEN', yellow = new Set(), chequered = false, label = '';
