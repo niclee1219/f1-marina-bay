@@ -345,6 +345,8 @@ export function buildDecals(car, decals, shade) {
 }
 
 // ---------------------------------------------------------------- cars
+const PARK_DELAY = 8;   // s from stopping to appearing in the garage
+
 export class Cars {
   constructor(scene, race, track, bridges = null, envMap = null) {
     this.race = race; this.track = track; this.bridges = bridges;
@@ -538,6 +540,11 @@ export class Cars {
     for (const c of this.cars) {
       const k = c.d.k;
       race.pos(k, t, c.xy, c.off);
+      // a retired car is recovered to its own garage bay a few seconds after it stops
+      const bay = this.garage && this.garage.bays.get(k);
+      const ph = bay && c.d.dnfT != null ? t - c.d.dnfT - PARK_DELAY : -Infinity;
+      const inGarage = ph >= 0;
+      if (inGarage) { c.xy[0] = bay.x; c.xy[1] = -bay.z; c.xy[3] = 0; }
       const x = c.xy[0], z = -c.xy[1];
       race.pos(k, t - 0.12, a, sep.offAt(c, t - 0.12, t)); race.pos(k, t + 0.12, b, sep.offAt(c, t + 0.12, t));
       const dx = b[0] - a[0], dz = -(b[1] - a[1]);
@@ -564,7 +571,8 @@ export class Cars {
           raw = along + THREE.MathUtils.clamp(off, -LATERAL.maxYaw, LATERAL.maxYaw);
         }
       }
-      if (raw !== null) {
+      if (inGarage) c.heading = bay.heading;
+      else if (raw !== null) {
         if (c.heading === null || opts.jumped || dt <= 0) c.heading = raw;
         else {
           let dh = raw - c.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
@@ -577,7 +585,7 @@ export class Cars {
         c.heading = along + THREE.MathUtils.clamp(off, -LATERAL.maxYaw, LATERAL.maxYaw);
       }
       const yNear = this.elevation(x, z, c);
-      const y = c.xy[3] ? c.xy[2] + 0.18 : yNear; // on track: elevation straight from the curve
+      const y = inGarage ? bay.y : c.xy[3] ? c.xy[2] + 0.18 : yNear; // on track: elevation straight from the curve
       c.root.position.set(x, y, z);
       c.car.rotation.y = c.heading;
       c.world.set(x, y, z);
@@ -586,8 +594,9 @@ export class Cars {
 
       // adaptive scale: real size up close, gently exaggerated from far away so cars stay visible
       const dist = cameraPos.distanceTo(c.root.position);
-      const s = opts.realScale ? 1 : THREE.MathUtils.clamp(dist / CAR_ZOOM.dist, 1, CAR_ZOOM.max);
-      c.car.scale.setScalar(s);
+      const s = opts.realScale || inGarage ? 1 : THREE.MathUtils.clamp(dist / CAR_ZOOM.dist, 1, CAR_ZOOM.max);
+      // shrink out on the track, grow in again inside the garage
+      c.car.scale.setScalar(s * Math.max(0.001, Math.min(1, Math.abs(ph))));
       c.label.position.y = 1.6 * s + 1.4;
       const detailed = dist < 450;
       // decals only once the car is big enough on screen to read them
@@ -657,7 +666,7 @@ export class Cars {
 
       // in practice, cars parked in the garage would pile their labels on top of each other
       const parked = !race.isRace && c.offTrack && tel.speed < 5 && k !== focusK;
-      c.label.visible = opts.labels && !(opts.onboard && k === focusK) && !parked;
+      c.label.visible = opts.labels && !(opts.onboard && k === focusK) && !parked && !(inGarage && k !== focusK);
       // onboard, the cockpit (src/cockpit.js) replaces the focused car's own body
       c.car.visible = !(opts.onboard && k === focusK);
       // labels fade where they would cover the rooftop SINGAPORE sign

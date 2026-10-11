@@ -131,6 +131,20 @@ export class Race {
       const last = d.laps[d.laps.length - 1];
       d.finishT = last && last[2] ? last[1] + last[2] : Infinity;
     }
+    // retirements: no classified finish and the car ends up stationary. dnfT is the last moment it
+    // was anywhere else (by position: the speed channel holds its last value once a car's feed
+    // stops), null for a car still running when the data ends
+    const nfr = this.duration * this.hz | 0;
+    for (const d of this.drivers) {
+      d.dnfT = null;
+      if (!this.isRace || d.finish != null) continue;
+      const j = i => (d.k * nfr + i) * 4, e = j(nfr - 1);
+      const same = i => ((this.frames[j(i) + 3] ^ this.frames[e + 3]) & 0x2000) === 0
+        && Math.abs(this.framesU[j(i)] - this.framesU[e]) < 5 && Math.abs(this.frames[j(i) + 1] - this.frames[e + 1]) < 50;
+      let i = nfr - 1;
+      while (i > 0 && same(i)) i--;
+      if (i < nfr - 2) d.dnfT = i / this.hz;
+    }
     const tr = this.track;
     tr.n = tr.center.length;
     this.grid = this.isRace ? this.buildGrid() : null;
@@ -364,7 +378,13 @@ export class Race {
   }
 
   order(t) {
-    return this.drivers.map(d => ({ d, p: this.position(d.k, t) })).sort((a, b) => a.p - b.p).map(e => e.d);
+    // retired cars drop below the ones still running
+    return this.drivers.map(d => ({ d, p: this.position(d.k, t) + (this.isOut(d.k, t) ? 100 : 0) })).sort((a, b) => a.p - b.p).map(e => e.d);
+  }
+
+  isOut(k, t) {
+    const T = this.drivers[k].dnfT;
+    return T != null && t >= T;
   }
 
   gap(k, t) {

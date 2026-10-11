@@ -28,6 +28,19 @@ export function laneBox(L, u0, u1, w0, w1, h0, h1) {
   return g;
 }
 
+// upright cylinder in lane space: centre (u, w), h0..h1 up, radius r
+export function laneCyl(L, u, w, h0, h1, r, seg = 14) {
+  const g = new THREE.CylinderGeometry(r, r, h1 - h0, seg).toNonIndexed();
+  const pos = g.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    L.point(u + pos.getX(i), w + pos.getZ(i), (h0 + h1) / 2 + pos.getY(i), v);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  return g;
+}
+
 // vertical quad facing the lane (toward -w) at w, spanning u0..u1, h0..h1, uv rect [a, b, c, d];
 // u reads left to right for someone in the lane facing the garages
 export function laneSign(L, u0, u1, w, h0, h1, uv) {
@@ -123,6 +136,21 @@ export function buildGarages(g, track, race) {
     x.fillText(f.team.toUpperCase(), w / 2, h / 2 + 4);
   });
 
+  // team-colour beam over each bay with the driver's name, like the garage beams in the paddock
+  const beamTex = atlas(bays, 512, 64, (x, { f, d }, w, h) => {
+    x.fillStyle = f.color; x.fillRect(0, 0, w, h);
+    x.fillStyle = 'rgba(0,0,0,0.22)'; x.fillRect(0, h - 8, w, 8);
+    x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    const name = (d ? d.name : f.team).toUpperCase();
+    fitText(x, name, w - 40, 40, 900, 'italic');
+    x.fillText(name, w / 2, h / 2 - 2);
+  });
+  const beams = [];
+  const black = C(0.035, 0.035, 0.04);
+  const bands = [C(0.85, 0.08, 0.08), C(0.95, 0.8, 0.1), C(0.9, 0.9, 0.92)];   // soft, medium, hard sidewalls
+  const screenBlue = C(0.3, 0.55, 1.0);
+  lay.bays = new Map();
+
   lay.frontage.forEach((f, ti) => {
     const col = new THREE.Color(f.color);
     const bayW = f.width / 2;
@@ -151,6 +179,52 @@ export function buildGarages(g, track, race) {
       solid.push(tint(laneBox(L, a, b, G - 0.15, G + 0.45, H, H + 1.3), dark));
       solid.push(tint(laneBox(L, a, a + 0.35, G - 0.2, G + 0.2, 0, H), col, 0.9));
       solid.push(tint(laneBox(L, b - 0.35, b, G - 0.2, G + 0.2, 0, H), col, 0.9));
+      // park the retired car's recovered position: bay centre, nose to the door
+      const dr = f.drivers[j];
+      if (dr) {
+        const uc = (a + b) / 2, wc2 = G + D * 0.5;
+        const p = L.point(uc, wc2, 0.1), front = L.point(uc, G, 0.1), back = L.point(uc, G + D, 0.1);
+        lay.bays.set(dr.k, { x: p.x, y: p.y, z: p.z, heading: Math.atan2(front.x - back.x, front.z - back.z) });
+      }
+      // garage dressing: monitor bank + wall TV, tyre stacks, big light panels, name beam, mats
+      {
+        // timing desk with a row of angled-looking screens, in front of the right wall
+        solid.push(tint(laneBox(L, b1 - 1.05, b1 - 0.15, G + 8.2, G + 11.7, 0, 0.95), col, 0.75));
+        solid.push(tint(laneBox(L, b1 - 1.1, b1 - 0.1, G + 8.1, G + 11.8, 0.95, 1.02), dark));
+        for (let m = 0; m < 5; m++) {
+          const w0 = G + 8.25 + m * 0.68;
+          solid.push(tint(laneBox(L, b1 - 0.95, b1 - 0.78, w0, w0 + 0.6, 1.1, 1.78), dark));
+          lit.push(tint(laneBox(L, b1 - 1.0, b1 - 0.95, w0 + 0.04, w0 + 0.56, 1.14, 1.74), screenBlue, 1.15 - (m % 2) * 0.25));
+        }
+        // large wall TV high on the back wall, and a strip of status screens either side
+        solid.push(tint(laneBox(L, a1 + 3.2, b1 - 3.2, G + D - 0.28, G + D - 0.2, 2.1, 3.3), dark));
+        lit.push(tint(laneBox(L, a1 + 3.3, b1 - 3.3, G + D - 0.31, G + D - 0.28, 2.18, 3.22), C(0.25, 0.4, 0.75), 1.1));
+        lit.push(tint(laneBox(L, a1 + 3.5, a1 + 5.0, G + D - 0.33, G + D - 0.31, 2.3, 3.0), col, 1.4));
+        // tyre stacks in the back corner and beside the door (sidewall colour bands)
+        const stacks = [[a1 + 0.75, G + D - 1.0, 5, 0], [a1 + 1.55, G + D - 1.0, 4, 1], [a1 + 0.75, G + D - 1.9, 3, 2], [a1 + 1.4, G + 1.4, 3, (ti + j) % 3]];
+        for (const [su, sw, nt, bi] of stacks) {
+          for (let q = 0; q < nt; q++) {
+            const h0 = q * 0.4;
+            solid.push(tint(laneCyl(L, su, sw, h0, h0 + 0.38, 0.33), black));
+            solid.push(tint(laneCyl(L, su, sw, h0 + 0.15, h0 + 0.23, 0.336), bands[bi]));
+          }
+        }
+        // second rack: tyre sets stacked on the back-wall rack
+        for (let q = 0; q < 4; q++) {
+          const ru2 = a1 + 2.2 + q * 0.95;
+          if (ru2 > b1 - 2.0) break;
+          solid.push(tint(laneCyl(L, ru2, G + D - 0.85, 1.8, 2.2, 0.33), black));
+          solid.push(tint(laneCyl(L, ru2, G + D - 0.85, 1.93, 2.07, 0.336), bands[(q + ti) % 3]));
+        }
+        // big overhead light panels and wall lamps
+        for (const w0 of [G + 2.2, G + 5.4, G + 8.6]) lit.push(tint(laneBox(L, a1 + 1.4, b1 - 1.4, w0, w0 + 1.3, H - 0.1, H - 0.03), C(1.6, 1.58, 1.5)));
+        for (const e of [a1 + 0.05, b1 - 0.3]) for (const w0 of [G + 3, G + 7.5]) lit.push(tint(laneBox(L, e, e + 0.25, w0, w0 + 1.6, 3.6, 3.75), C(1.4, 1.4, 1.35)));
+        // name beam inside the door, floor mats by the desk and the car
+        solid.push(tint(laneBox(L, a1, b1, G + 0.5, G + 1.3, H - 0.95, H), col, 0.8));
+        beams.push(laneSign(L, a1 + 0.1, b1 - 0.1, G + 0.48, H - 0.9, H - 0.1, [(ti * 2 + j) / bays.length, 0, (ti * 2 + j + 1) / bays.length, 1]));
+        solid.push(tint(laneBox(L, b1 - 2.6, b1 - 1.2, G + 8.4, G + 10.8, 0, 0.03), dark));
+        solid.push(tint(laneBox(L, a + bayW / 2 - 1.6, a + bayW / 2 + 1.6, G + 0.8, G + 2.2, 0, 0.025), dark));
+      }
       // number board over the door
       const k = ti * 2 + j, n = bays.length;
       signs.push(laneSign(L, a + 0.6, b - 0.6, G - 0.17, H + 0.15, H + 1.2, [k / n, 0, (k + 1) / n, 1]));
@@ -222,6 +296,7 @@ export function buildGarages(g, track, race) {
 
   const out = new THREE.Group();
   out.name = 'garages';
+  if (beams.length) out.add(new THREE.Mesh(mergeGeometries(beams), new THREE.MeshBasicMaterial({ map: beamTex, color: new THREE.Color(1.15, 1.15, 1.15), side: THREE.DoubleSide })));
   out.add(new THREE.Mesh(mergeGeometries(lit), new THREE.MeshBasicMaterial({ vertexColors: true })));
   out.add(new THREE.Mesh(mergeGeometries(solid), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.2, emissive: 0x0a0b0e })));
   out.add(new THREE.Mesh(mergeGeometries(signs), new THREE.MeshBasicMaterial({ map: boardTex, color: new THREE.Color(1.25, 1.25, 1.25), side: THREE.DoubleSide })));

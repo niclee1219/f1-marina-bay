@@ -115,9 +115,13 @@ export class UI {
       }
       const inPit = race.inPit(d.k, t);
       const finished = leaderDone && t >= d.finishT;
+      const out = race.isOut(d.k, t);
       if (inPit && t > race.race_start) gapTxt = 'PIT';
+      if (out) gapTxt = 'OUT';
       r.gap.textContent = gapTxt;
-      r.gap.classList.toggle('pit', inPit && t > race.race_start);
+      r.gap.classList.toggle('pit', inPit && !out && t > race.race_start);
+      r.gap.classList.toggle('dnf', out);
+      r.row.classList.toggle('out', out);
       let flags = '';
       if (timing.best.lapK === d.k) flags += '<span class="fl purple" title="Fastest lap">⏱</span>';
       if (finished) flags += '<span class="fl chq" title="Finished"></span>';
@@ -430,6 +434,10 @@ export class UI {
       if (e.t <= prevT || e.t > t || !e.overallBest || e.t < race.race_start) continue;
       const d = race.drivers[e.k];
       this.toast('fl', 'FASTEST LAP', `<b style="color:${d.color}">${d.code}</b> ${fmtLap(e.dur)}`, true);
+    }
+    for (const d of race.isRace ? race.drivers : []) {
+      if (d.dnfT == null || d.dnfT <= prevT || d.dnfT > t) continue;
+      this.toast('dnf', 'CAR OUT', `<b style="color:${d.color}">${d.code}</b> retires on lap ${race.lap(d.k, d.dnfT)}`, true);
     }
     for (const p of race.isRace ? race.pits : []) {
       if (p[0] <= prevT || p[0] > t) continue;

@@ -189,6 +189,7 @@ body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minima
 .row .gap { text-align: right; color: #d6d6de; font-variant-numeric: tabular-nums; font-size: 12.5px; }
 .row .gap.none { color: var(--muted); font-size: 11px; letter-spacing: .06em; }
 .row .gap.pit { color: #111; background: var(--text); border-radius: 3px; font-weight: 900; text-align: center; font-size: 11px; letter-spacing: .1em; padding: 1px 0; }
+.row .gap.dnf { color: #fff; background: #d12b2b; border-radius: 3px; font-weight: 900; text-align: center; font-size: 11px; letter-spacing: .1em; padding: 1px 0; }
 .row .flags { display: flex; gap: 3px; }
 .fl { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 3px; font-size: 10px; }
 .fl.purple { background: var(--purple); }
@@ -303,6 +304,7 @@ body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minima
 .toast.ovt { border-color: #60a5fa; }
 .toast.pit { border-color: var(--text); }
 .toast.chq { border-color: #fff; }
+.toast.dnf { border-color: #d12b2b; }
 .toast.fl { border-color: var(--purple); }
 .sessions { align-self: center; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(8px); }
 @keyframes tin { from { opacity: 0; transform: translateY(10px); } }

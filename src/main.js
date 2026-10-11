@@ -100,11 +100,12 @@ async function boot() {
   viaducts.build(scene);
   await step(0.92, 'Rolling out the cars');
   const pit = buildPitComplex(track.group, city, race, track);
-  buildGarages(track.group, track, race);
+  const garageLay = buildGarages(track.group, track, race);
   track.inPaddock = pit.inPaddock;
   const crew = new PitCrew(scene, race, track);
   const identity = new Identity(track, race, track.group);
   const cars = new Cars(scene, race, track, bridges, reflect.texture);
+  cars.garage = garageLay;   // retired cars are recovered to their own garage bay
   const lateralView = new LateralView(scene, track, cars);   // D: where the telemetry puts cars vs where they are drawn
   const crowd = new Crowd(scene, track, race, pit.decks);
   const streets = new Streets(scene, city, track, elevatedRoadKeys(city));
