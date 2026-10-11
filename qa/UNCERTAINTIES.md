@@ -82,8 +82,12 @@ Guessed:
 - Bollard count and spacing, pit exit light position (6 m after the limiter line), entry / exit
   line lengths on the circuit (45 m).
 - Garage frontage is spaced evenly (a fit of the measured boxes); real bay widths may differ.
-- Pit building: storey heights, balcony depth, podium position (mid-building) and size, race
-  control at the pit exit end, the paddock layout (two rows of hospitality units and the trucks).
+- Pit building: it follows the OSM footprint (length and back edge), its front on the garage line
+  of the fitted lane. Storey heights, balcony depth, podium position (mid-building) and size, race
+  control at the pit exit end are guesses. The garages south of the team garages (in front of the
+  pit entry) are drawn as neutral bays (FIA, safety car, medical car...); which bay is which is a
+  guess. The lettering is on the sloped roof fascia, as in the pit-lane night photo, without the F1
+  logo. The paddock stops at the next OSM road behind the building.
 - Pit crew: 16 figures at standard positions; their run-out and walk-back times are invented,
   the time at the car is OpenF1's stop_duration.
 

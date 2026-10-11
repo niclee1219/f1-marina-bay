@@ -834,6 +834,8 @@ export class Track {
 
   // fitted pit lane (pitlane.js); the pit building and garages are built in pit.js
   buildPit(g) {
+    // the pit building's OSM footprint sets how far the working lane runs (pitlane.js fitFootprint)
+    if (this.lane && this.pitFootprint) this.lane.fitFootprint(this.pitFootprint);
     this.pitLaneCtl = buildPitLane(this, g);
   }
 

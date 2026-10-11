@@ -59,6 +59,45 @@ export class PitLane {
     this.boxTo = fr ? fr.to + 6 : data.limitTo - 30;
   }
 
+  // Fit the pit building to its OSM footprint (flat [x0, y0, ...] ring): the stretch of lane whose
+  // garage line runs along the building (bldFrom..bldTo) and, per metre of lane, how deep the
+  // building reaches behind the garage line (back edge of the footprint). The working lane then
+  // runs the whole length of the building.
+  fitFootprint(ring) {
+    const inside = (x, y) => {
+      let c = false;
+      for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+        const xi = ring[i], yi = ring[i + 1], xj = ring[j], yj = ring[j + 1];
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+      }
+      return c;
+    };
+    const v = new THREE.Vector3(), depth = [];
+    let a = -1, b = -1;
+    for (let u = 0; u <= this.length; u += 1) {
+      // probe a few metres behind the garage line (the line itself sits on the footprint edge)
+      let d = 0;
+      for (let w = W.garage + 1; w < W.garage + 80; w += 0.5) {
+        this.point(u, w, 0, v);
+        if (inside(v.x, -v.z)) d = w - W.garage; else if (d > 0) break;
+      }
+      depth.push(d);
+      if (d > 6) { if (a < 0) a = u; b = u; }
+    }
+    if (a < 0) return false;
+    this.bldFrom = a; this.bldTo = b; this.bldDepth = depth;
+    this.boxFrom = Math.min(this.boxFrom, a);
+    this.boxTo = Math.max(this.boxTo, b);
+    return true;
+  }
+
+  // building depth behind the garage line at lane distance u (fitFootprint)
+  depthAt(u, fallback = 30) {
+    if (!this.bldDepth) return fallback;
+    const k = Math.max(0, Math.min(this.bldDepth.length - 1, Math.round(u)));
+    return this.bldDepth[k] || fallback;
+  }
+
   // index + fraction at lane distance u
   locate(u) {
     u = Math.max(0, Math.min(this.length, u));

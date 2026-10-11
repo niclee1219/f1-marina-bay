@@ -200,11 +200,11 @@ export const PIT_LANE = {
 
 // Pit building and paddock (src/pit.js), metres. depth: building depth behind the garage line;
 // endRun: building beyond the first / last garage; mastEvery: roof floodlight masts; podium over the
-// pit lane mid-building (podiumShift moves it along the lane); sign: the one facade sign and its
-// length; paddock: gap behind the building, width, central walkway, hospitality units; trackClear:
+// pit lane mid-building (podiumShift moves it along the lane); sign: the lettering on the sloped
+// roof fascia and its length; depth / endRun: only used when the OSM footprint is missing; paddock: gap behind the building, width, central walkway, hospitality units; trackClear:
 // no unit or truck closer than this to the circuit centreline.
 export const PADDOCK = {
-  depth: 30, endRun: 30, mastEvery: 24, podiumShift: 0, podiumWidth: 20, sign: 'SINGAPORE', signLength: 56,
+  depth: 30, endRun: 30, mastEvery: 24, podiumShift: 0, podiumWidth: 20, sign: 'SINGAPORE GRAND PRIX', signLength: 80,
   gap: 6, width: 72, walkway: 10, unitLength: 18, unitDepth: 14, unitHeight: 9.5, trackClear: 24,
 };
 

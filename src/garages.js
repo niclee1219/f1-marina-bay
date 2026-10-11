@@ -10,6 +10,9 @@ import { PIT_LANE, PADDOCK } from './config.js';
 import { frontage } from './pitlane.js';
 
 const P = PIT_LANE;
+// boards over the garages that are not a team's (order is a guess)
+const NEUTRAL = ['FIA', 'SAFETY CAR', 'MEDICAL CAR', 'FIA', 'TYRES', 'SCRUTINEERING', 'MARSHALS'];
+const C = (r, g, b) => new THREE.Color(r, g, b);
 
 // unit box mapped into lane space: u0..u1 along, w0..w1 across, h0..h1 up
 export function laneBox(L, u0, u1, w0, w1, h0, h1) {
@@ -184,9 +187,38 @@ export function buildGarages(g, track, race) {
     solid.push(tint(laneBox(L, su - sl / 2 - 0.3, su + sl / 2 + 0.3, sw0 - 0.3, sw1, 3.3, 3.55), col, 0.9));
   });
 
-  // ---- closed frontage beyond the first and last garage, so the building front stays continuous
-  const ends = [[lay.from - PADDOCK.endRun, lay.from], [lay.to, lay.to + PADDOCK.endRun]];
-  for (const [a, b] of ends) if (b > a) solid.push(tint(laneBox(L, a, b, G, G + D, 0, H + 1.3), grey));
+  // ---- the rest of the building front (pitlane.js fitFootprint): neutral garages with closed
+  // doors and text boards (FIA, safety car, medical car...; which bay is which is a guess)
+  const bw = lay.slope / 2, neutral = [], nboards = [];
+  const bFrom = L.bldFrom ?? lay.from - PADDOCK.endRun, bTo = L.bldTo ?? lay.to + PADDOCK.endRun;
+  const runs = [[bFrom, lay.from, -1], [lay.to, bTo, 1]];
+  for (const [a, b, dir] of runs) {
+    const n = Math.floor((b - a) / bw);
+    for (let k = 0; k < n; k++) {
+      // count outward from the team garages so the rhythm continues
+      const e = dir < 0 ? lay.from - (k + 1) * bw : lay.to + k * bw, f2 = e + bw;
+      solid.push(tint(laneBox(L, e + 0.3, f2 - 0.3, G + 0.1, G + 0.35, 0, H), C(0.62, 0.64, 0.68)));       // roller door
+      for (let h = 0.5; h < H; h += 0.5) solid.push(tint(laneBox(L, e + 0.3, f2 - 0.3, G + 0.05, G + 0.1, h, h + 0.04), C(0.45, 0.47, 0.5)));
+      solid.push(tint(laneBox(L, e, e + 0.3, G - 0.2, G + 0.4, 0, H), C(0.5, 0.52, 0.56)));
+      solid.push(tint(laneBox(L, f2 - 0.3, f2, G - 0.2, G + 0.4, 0, H), C(0.5, 0.52, 0.56)));
+      solid.push(tint(laneBox(L, e, f2, G - 0.15, G + 0.45, H, H + 1.3), dark));
+      neutral.push(NEUTRAL[(dir < 0 ? k : k + 3) % NEUTRAL.length]);
+      nboards.push([e, f2]);
+    }
+    // whatever is left over at the very end of the building: plain wall
+    const used = n * bw;
+    if (b - a - used > 0.5) {
+      const [p, q] = dir < 0 ? [a, b - used] : [a + used, b];
+      solid.push(tint(laneBox(L, p, q, G, G + 0.4, 0, H + 1.3), C(0.5, 0.52, 0.56)));
+    }
+  }
+  const nTex = neutral.length && atlas(neutral, 512, 128, (x, label, w, h) => {
+    x.fillStyle = '#20232a'; x.fillRect(0, 0, w, h);
+    x.fillStyle = '#e8eaee'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    fitText(x, label, w - 60, 64, 700);
+    x.fillText(label, w / 2, h / 2 + 2);
+  });
+  const nSigns = nboards.map(([e, f2], k) => laneSign(L, e + 0.6, f2 - 0.6, G - 0.17, H + 0.15, H + 1.2, [k / nboards.length, 0, (k + 1) / nboards.length, 1]));
 
   const out = new THREE.Group();
   out.name = 'garages';
@@ -205,6 +237,7 @@ export function buildGarages(g, track, race) {
     return new THREE.CanvasTexture(c);
   })();
   out.add(new THREE.Mesh(mergeGeometries(glows), new THREE.MeshBasicMaterial({ map: spill, color: new THREE.Color(0.22, 0.21, 0.19), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -10 })));
+  if (nSigns.length) out.add(new THREE.Mesh(mergeGeometries(nSigns), new THREE.MeshBasicMaterial({ map: nTex, color: new THREE.Color(1.1, 1.1, 1.1), side: THREE.DoubleSide })));
   g.add(out);
   return lay;
 }
