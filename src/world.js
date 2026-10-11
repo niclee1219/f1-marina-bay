@@ -149,13 +149,13 @@ export function buildingMaterial() {
           float lit = (isOffice + isStone) * litOffice + isHotel * litHotel + isRes * litRes + isHer * litHer + isFill * litRes * 0.35;
           lit *= step(2.6, v) * step(v, vTop - 1.2);
 
-          vec3 cool = vec3(0.72, 0.86, 1.0), warm = vec3(1.0, 0.66, 0.36), neutral = vec3(1.0, 0.85, 0.66);
+          vec3 cool = vec3(0.5, 0.74, 1.0), warm = vec3(1.0, 0.66, 0.36), neutral = vec3(1.0, 0.85, 0.66);   // office floors read cyan-blue in the CBD photos
           vec3 wc = isOffice * mix(cool, neutral, step(0.85, fract(floorH * 13.1)))
                   + isStone * mix(neutral, cool, step(0.7, fract(floorH * 13.1)))
                   + isHotel * warm
                   + isRes * mix(warm, neutral, step(0.55, fract(roomH * 9.7)))
                   + (isHer + isFill) * mix(warm, neutral, 0.3);
-          vec3 pattern = open * lit * wc * 1.05;
+          vec3 pattern = open * lit * wc * (1.05 - 0.3 * isOffice);
           // lobby / shopfront glow along the ground floor of towers and shops
           float lobby = (isOffice + isHotel + isStone + float(k == 4.0)) * step(0.6, v) * step(v, 5.5) * step(0.1, bu);
           pattern += lobby * neutral * 0.55;
@@ -163,7 +163,7 @@ export function buildingMaterial() {
           // when a window cell shrinks to a few pixels, fade to its average glow (no shimmer)
           float px = max(fwidth(u / bay), fwidth(v / fh));
           float far = smoothstep(0.3, 0.9, px);
-          float avgLit = isStone * 0.3 + isOffice * 0.3 + isHotel * 0.42 + isRes * 0.3 + isHer * 0.3 + isFill * 0.08;
+          float avgLit = isStone * 0.3 + isOffice * 0.21 + isHotel * 0.42 + isRes * 0.3 + isHer * 0.3 + isFill * 0.08;
           float avgOpen = isStone * 0.38 + isOffice * 0.66 + isHotel * 0.53 + isRes * 0.28 + isHer * 0.23 + isFill * 0.28;
           vec3 avg = wc * avgLit * avgOpen * step(2.6, v) * 0.9;
           totalEmissiveRadiance += wall * glazed * mix(pattern, avg, far);
@@ -172,12 +172,16 @@ export function buildingMaterial() {
           float frame = (1.0 - open) * (1.0 - far);
           diffuseColor.rgb *= 1.0 - 0.35 * frame * wall * glazed;
 
-          // glass towers mirror the night sky: purple haze low, deep blue overhead
+          // glass curtain walls (tall offices) are dark blue glass, as in the night photos of the CBD,
+          // not a pale wall washed by the moon and floodlight wash
+          float curtain = wall * glazed * isOffice * tall;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.022, 0.036, 0.07), curtain * 0.8);
+          // glass towers mirror the night sky: city-glow haze low, deep blue overhead
           vec3 V = normalize(vWPos - cameraPosition);
           vec3 R = reflect(V, vWN);
-          vec3 env = mix(vec3(0.06, 0.04, 0.07), vec3(0.01, 0.03, 0.055), smoothstep(-0.1, 0.5, R.y));
+          vec3 env = mix(vec3(0.07, 0.045, 0.07), vec3(0.012, 0.04, 0.085), smoothstep(-0.1, 0.5, R.y));
           float fres = pow(1.0 - max(dot(-V, vWN), 0.0), 3.0);
-          totalEmissiveRadiance += wall * glazed * (isOffice + isHotel) * tall * env * (0.2 + 0.8 * fres) * (1.0 - open * lit);
+          totalEmissiveRadiance += wall * glazed * (isOffice + isHotel) * tall * env * (0.3 + 1.2 * fres) * (1.0 - open * lit);
           // faint facade bounce so massing reads at night (weaker for distant filler)
           totalEmissiveRadiance += wall * vec3(0.016, 0.02, 0.032) * (0.6 + 0.4 * smoothstep(0.0, 80.0, v)) * (1.0 - 0.6 * isFill);
 
