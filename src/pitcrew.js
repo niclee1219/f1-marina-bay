@@ -87,10 +87,15 @@ export class PitCrew {
       const o = new THREE.Points(g, new THREE.PointsMaterial({ map: glowTex(), size, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color, toneMapped: false }));
       o.frustumCulled = false; o.name = 'pit-crew'; g.setDrawRange(0, 0); scene.add(o); return o;
     };
+    this.oldTyres = new THREE.InstancedMesh(tyre, new THREE.MeshStandardMaterial({ color: 0x2f3136, roughness: 0.9 }), live * 4);
+    this.oldBands = new THREE.InstancedMesh(ring, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }), live * 4);
+    for (const m of [this.oldTyres, this.oldBands]) { m.count = 0; m.frustumCulled = false; m.name = 'pit-crew'; scene.add(m); }
     this.glow = pts(live * 2, 3.4, new THREE.Color(1, 0.93, 0.8));
     this.sparks = pts(live * 4, 0.7, new THREE.Color(1, 0.62, 0.2));
     for (const st of this.stops) {
       const ty = race.tyre(st.k, st.t1 + 1);
+      const was = race.tyre(st.k, st.t0 - 1);
+      st.oldColor = new THREE.Color(((was && { SOFT: '#ff2d2c', MEDIUM: '#ffd12e', HARD: '#f0f0ec', INTERMEDIATE: '#43b047', WET: '#0090ff' }[was.comp]) || '#f0f0ec'));
       st.newColor = new THREE.Color(((ty && { SOFT: '#ff2d2c', MEDIUM: '#ffd12e', HARD: '#f0f0ec', INTERMEDIATE: '#43b047', WET: '#0090ff' }[ty.comp]) || '#f0f0ec'));
     }
     this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.s = new THREE.Vector3();
@@ -104,7 +109,7 @@ export class PitCrew {
 
   update(t) {
     if (!this.enabled) return;
-    let n = 0, ng = 0, nj = 0, nt = 0, ns = 0, nb = 0, nl = 0, nsp = 0;
+    let n = 0, ng = 0, nj = 0, nt = 0, ns = 0, nb = 0, nl = 0, nsp = 0, no = 0;
     const gp = this.glow.geometry.attributes.position, sp = this.sparks.geometry.attributes.position;
     const { m, q, v, s } = this, up = new THREE.Vector3(0, 1, 0);
     for (const st of this.stops) {
@@ -152,12 +157,27 @@ export class PitCrew {
         }
         n++;
       });
-      // tyre stacks on the garage side: the compound about to go on shows in the top ring
-      for (const [al, lv] of [[2.4, 0], [2.4, 1], [-2.4, 0], [-2.4, 1]]) {
-        if (nt >= this.stackTyres.instanceMatrix.count) break;
-        v.set(st.p.x + st.t.x * al + st.g.x * 4.1, st.p.y + 0.19 + lv * 0.4, st.p.z + st.t.z * al + st.g.z * 4.1);
+      // tyre stacks on the garage side (the compound about to go on shows in the top ring): the tyres travel
+      // to the hubs as the old ones come off, and are on the car by the middle of the stop; the old ones drop beside it
+      const D = st.t1 - st.t0, tOn = st.t0 + D * 0.55, tOff = st.t0 + 0.9;
+      const WH = [[1.8, 0.9], [1.8, -0.9], [-1.8, 0.9], [-1.8, -0.9]];
+      [[2.4, 0], [2.4, 1], [-2.4, 0], [-2.4, 1]].forEach(([al, lv], j) => {
+        if (t >= tOn || nt >= this.stackTyres.instanceMatrix.count) return;
+        const kk = THREE.MathUtils.smoothstep(t, st.t0 + D * 0.22, tOn);
+        const [wa, wc] = WH[j];
+        const ax = al + (wa - al) * kk, ac = 4.1 + (wc - 4.1) * kk, yy = 0.19 + lv * 0.4 * (1 - kk) + 0.17 * kk;
+        v.set(st.p.x + st.t.x * ax + st.g.x * ac, st.p.y + yy, st.p.z + st.t.z * ax + st.g.z * ac);
         m.compose(v, q.identity(), s.set(1, 1, 1));
         this.stackTyres.setMatrixAt(nt, m); this.stackBands.setMatrixAt(nt, m); this.stackBands.setColorAt(nt, st.newColor); nt++;
+      });
+      if (t >= tOff && working || t > st.t1) {
+        WH.forEach(([wa, wc]) => {
+          if (no >= this.oldTyres.instanceMatrix.count) return;
+          const kk = THREE.MathUtils.smoothstep(t, tOff, tOff + 0.5), ac = wc * (1 + 1.35 * kk), yy = 0.36 - 0.17 * kk;
+          v.set(st.p.x + st.t.x * wa + st.g.x * ac, st.p.y + yy, st.p.z + st.t.z * wa + st.g.z * ac);
+          m.compose(v, q.identity(), s.set(1, 1, 1));
+          this.oldTyres.setMatrixAt(no, m); this.oldBands.setMatrixAt(no, m); this.oldBands.setColorAt(no, st.oldColor); no++;
+        });
       }
       // work lights: two stands either end of the box lighting the car, with glow
       for (const al of [4.2, -4.2]) {
@@ -174,8 +194,9 @@ export class PitCrew {
     }
     this.sparks.geometry.setDrawRange(0, nsp); sp.needsUpdate = true;
     this.glow.geometry.setDrawRange(0, nl); gp.needsUpdate = true;
-    for (const [mesh, c] of [[this.stackTyres, nt], [this.stackBands, nt], [this.stands, nl], [this.panels, nl], [this.boards, nb]]) { mesh.count = c; mesh.instanceMatrix.needsUpdate = true; }
+    for (const [mesh, c] of [[this.oldTyres, no], [this.oldBands, no], [this.stackTyres, nt], [this.stackBands, nt], [this.stands, nl], [this.panels, nl], [this.boards, nb]]) { mesh.count = c; mesh.instanceMatrix.needsUpdate = true; }
     if (this.stackBands.instanceColor) this.stackBands.instanceColor.needsUpdate = true;
+    if (this.oldBands.instanceColor) this.oldBands.instanceColor.needsUpdate = true;
     if (this.boards.instanceColor) this.boards.instanceColor.needsUpdate = true;
     for (const [mesh, c] of [[this.legs, n], [this.body, n], [this.head, n], [this.guns, ng], [this.jacks, nj]]) {
       mesh.count = c;

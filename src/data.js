@@ -401,10 +401,10 @@ export class Race {
     if (!S.length) return null;
     if (!d.stopTimes) {
       S.sort((x, y) => x.sn - y.sn);
-      const rec = ((this.pitLane && this.pitLane.stops) || []).filter(x => x.k === k).map(x => x.t0);
+      const rec = ((this.pitLane && this.pitLane.stops) || []).filter(x => x.k === k).map(x => x.t0 + (x.t1 - x.t0) * 0.55);   // new tyres on
       d.stopTimes = d.pitWindows.map(w => {
         const hit = rec.find(r => Math.abs(r - w.t) < (w.lane || 30) + 12);
-        return hit !== undefined ? hit : w.t - (w.lane || 25) * 0.5;
+        return hit !== undefined ? hit : w.t - (w.lane || 25) * 0.5 + 1.4;
       }).sort((x, y) => x - y);
     }
     let n = 0;

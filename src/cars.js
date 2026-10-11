@@ -506,6 +506,7 @@ export class Cars {
       return {
         // sponsor decals only for liveries checked against reference images (config.LIVERIES)
         decals: L.reference && L.decals ? buildDecals(car, L.decals, shade) : null,
+        stops: ((race.pitLane && race.pitLane.stops) || []).filter(st => st.k === d.k),
         d, root, car, wheels, spins, steers, bandMat, brakeMat, flapPivot, tailMat, tailGlow, glow, trail, label, el, details, detailed: true,
         elPos: el.querySelector('.pos'), shade,
         heading: null, xy: [0, 0, 0, 0, 0, 0], world: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, 1), y: 0, spin: 0,
@@ -597,6 +598,16 @@ export class Cars {
       const s = opts.realScale || inGarage ? 1 : THREE.MathUtils.clamp(dist / CAR_ZOOM.dist, 1, CAR_ZOOM.max);
       // shrink out on the track, grow in again inside the garage
       c.car.scale.setScalar(s * Math.max(0.001, Math.min(1, Math.abs(ph))));
+      // pit stop: the jacks lift the car, the wheels come off, the new ones go on, the car drops (pitcrew.js has the crew)
+      let lift = 0, off = false;
+      for (const st of c.stops) {
+        if (t < st.t0 || t > st.t1 + 0.1) continue;
+        const D = st.t1 - st.t0;
+        lift = 0.17 * Math.min(THREE.MathUtils.smoothstep(t, st.t0 + 0.1, st.t0 + 0.6), 1 - THREE.MathUtils.smoothstep(t, st.t1 - 0.5, st.t1));
+        off = t > st.t0 + 0.9 && t < st.t0 + D * 0.55;
+      }
+      c.car.position.y = lift * (s > 1 ? 1 : s);
+      if (c.wheelsOff !== off) { c.wheelsOff = off; c.wheels.forEach(w => { w.visible = !off; }); }
       c.label.position.y = 1.6 * s + 1.4;
       const detailed = dist < 450;
       // decals only once the car is big enough on screen to read them

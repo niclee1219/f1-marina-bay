@@ -716,15 +716,99 @@ function padang(city, M, lm) {
     windowRows(L.dark, L.lit, len, wid, h, 2, rnd);
   });
 
-  // the Padang: a floodlit lawn with the cricket square and a white boundary rope
+  // the Padang: a floodlit, mown lawn (stripes along the field's axis) with the cricket oval and square,
+  // football pitch markings, floodlight masts with light pools on the grass, and event marquees by the club
   const lawnRing = (city.parks || []).find(r => pointIn(pad.x, pad.y, r));
   if (lawnRing) {
     const sh = new THREE.Shape(Array.from({ length: lawnRing.length / 2 }, (_, i) => new THREE.Vector2(lawnRing[i * 2], lawnRing[i * 2 + 1])));
     const lawn = new THREE.ShapeGeometry(sh).rotateX(-Math.PI / 2).translate(0, 0.05, 0);
-    g.add(new THREE.Mesh(fixUp(lawn), new THREE.MeshStandardMaterial({ color: 0x2f5f2a, roughness: 0.95, emissive: new THREE.Color(0.02, 0.07, 0.025), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -5 })));
-    const sq = new THREE.PlaneGeometry(22, 4).rotateX(-Math.PI / 2).rotateY(-pad.dir).translate(pad.x + Math.cos(pad.dir) * 40, 0.08, -(pad.y + Math.sin(pad.dir) * 40));
-    g.add(new THREE.Mesh(sq, new THREE.MeshStandardMaterial({ color: 0x8d7d58, roughness: 1, emissive: 0x1a160c, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -6 })));
-    g.add(new THREE.Mesh(new THREE.TorusGeometry(62, 0.12, 3, 96).rotateX(Math.PI / 2).translate(pad.x + Math.cos(pad.dir) * 40, 0.15, -(pad.y + Math.sin(pad.dir) * 40)), M.led));
+    fixUp(lawn);
+    // uv in stripe space: 3 m stripes running along the field's axis (8 stripes per texture tile)
+    {
+      const P = lawn.attributes.position, uv = new Float32Array(P.count * 2), ca = Math.cos(pad.dir), sa = Math.sin(pad.dir);
+      for (let i = 0; i < P.count; i++) {
+        const px = P.getX(i), py = -P.getZ(i);
+        uv[i * 2] = (px * ca + py * sa) / 24; uv[i * 2 + 1] = (-px * sa + py * ca) / 24;
+      }
+      lawn.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    }
+    const grass = document.createElement('canvas'); grass.width = grass.height = 256;
+    {
+      const x = grass.getContext('2d');
+      for (let i = 0; i < 8; i++) { x.fillStyle = i % 2 ? '#3f7d36' : '#4f9440'; x.fillRect(0, i * 32, 256, 32); }
+      const img = x.getImageData(0, 0, 256, 256);
+      for (let i = 0; i < img.data.length; i += 4) { const v = (rnd() - 0.5) * 22; img.data[i] += v; img.data[i + 1] += v * 1.2; img.data[i + 2] += v * 0.6; }
+      x.putImageData(img, 0, 0);
+    }
+    const grassTex = new THREE.CanvasTexture(grass);
+    grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.colorSpace = THREE.SRGBColorSpace; grassTex.anisotropy = 8;
+    g.add(new THREE.Mesh(lawn, new THREE.MeshStandardMaterial({
+      map: grassTex, color: 0xd6e6cc, emissiveMap: grassTex, emissive: 0xffffff, emissiveIntensity: 0.3, roughness: 0.95,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -5,
+    })));
+    // oval centre; the field's axis in scene space is (cos dir, 0, -sin dir)
+    const cx = pad.x + Math.cos(pad.dir) * 40, cz = -(pad.y + Math.sin(pad.dir) * 40);
+    const flat = (geo, y, mat) => { const m = new THREE.Mesh(geo.rotateX(-Math.PI / 2).rotateY(pad.dir).translate(cx, y, cz), mat); g.add(m); return m; };
+    const chalk = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.8, 0.82, 0.78), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -8 });
+    // cricket square (a pitch strip along the axis with creases) and the boundary rope
+    flat(new THREE.PlaneGeometry(22, 3.2), 0.09, new THREE.MeshStandardMaterial({ color: 0xa08c5a, roughness: 1, emissive: 0x2a2210, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -6 }));
+    for (const dx of [-9.6, 9.6]) flat(new THREE.PlaneGeometry(0.1, 3.4).translate(dx, 0, 0), 0.1, chalk);
+    g.add(new THREE.Mesh(new THREE.TorusGeometry(62, 0.14, 3, 120).rotateX(Math.PI / 2).translate(cx, 0.16, cz), M.led));
+    // football / rugby pitch markings across the oval: touchlines, halfway line, centre circle, penalty boxes
+    {
+      const L = 96, Wd = 60, t = 0.2, strips = [];
+      const bar = (w, h, x, y) => strips.push(new THREE.PlaneGeometry(w, h).translate(x, y, 0));
+      bar(L, t, 0, Wd / 2); bar(L, t, 0, -Wd / 2); bar(t, Wd, L / 2, 0); bar(t, Wd, -L / 2, 0); bar(t, Wd, 0, 0);
+      for (const sgn of [-1, 1]) {
+        bar(t, 36, sgn * (L / 2 - 14), 0); bar(14, t, sgn * (L / 2 - 7), 18); bar(14, t, sgn * (L / 2 - 7), -18);
+        bar(t, 16, sgn * (L / 2 - 5), 0); bar(5, t, sgn * (L / 2 - 2.5), 8); bar(5, t, sgn * (L / 2 - 2.5), -8);
+      }
+      strips.push(new THREE.RingGeometry(7.8, 8.0, 48));
+      flat(mergeGeometries(strips.map(x => (x.index ? x.toNonIndexed() : x)).map(x => { x.deleteAttribute('uv'); return x; })), 0.11, chalk);
+    }
+    // floodlight masts round the lawn: pole, lamp bank, glow, and a pool of light on the grass beneath
+    {
+      const masts = [], heads = [], glowAt = [], pools = [];
+      const n = lawnRing.length / 2, picks = 8;
+      for (let k = 0; k < picks; k++) {
+        const i = Math.floor((k + 0.5) * n / picks), x = lawnRing[i * 2], y = lawnRing[i * 2 + 1];
+        const f = 5 / Math.max(1, Math.hypot(pad.x - x, pad.y - y));
+        const mx = x + (pad.x - x) * f, mz = -(y + (pad.y - y) * f), yaw = Math.atan2(cx - mx, cz - mz);
+        masts.push(new THREE.CylinderGeometry(0.28, 0.5, 30, 8).translate(mx, 15, mz));
+        for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) {
+          const hg = new THREE.BoxGeometry(1.5, 1.1, 0.5).translate((c - 1.5) * 1.7, 30.4 + r * 1.3, 0.3).rotateY(yaw).translate(mx, 0, mz);
+          heads.push(hg);
+        }
+        glowAt.push([mx, 31.2, mz]);
+        pools.push(new THREE.PlaneGeometry(70, 70).rotateX(-Math.PI / 2).translate(mx + (cx - mx) * 0.32, 0.13, mz + (cz - mz) * 0.32));
+      }
+      const mergeN = list => mergeGeometries(list.map(x => { x = x.index ? x.toNonIndexed() : x; x.deleteAttribute('uv'); return x; }));
+      g.add(new THREE.Mesh(mergeN(masts), M.heritageDark), new THREE.Mesh(mergeN(heads), M.led));
+      const pc = document.createElement('canvas'); pc.width = pc.height = 64;
+      { const x = pc.getContext('2d'), gr = x.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,250,225,1)'); gr.addColorStop(0.5, 'rgba(255,245,215,0.35)'); gr.addColorStop(1, 'rgba(255,245,215,0)'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); }
+      const poolTex = new THREE.CanvasTexture(pc);
+      g.add(new THREE.Mesh(mergeGeometries(pools.map(x => { x = x.toNonIndexed(); return x; })), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 0.22, 0.17), map: poolTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute('position', new THREE.Float32BufferAttribute(glowAt.flat(), 3));
+      g.add(new THREE.Points(gg, new THREE.PointsMaterial({ map: poolTex, size: 16, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: new THREE.Color(1, 0.96, 0.85), toneMapped: false })));
+    }
+    // event marquees on the lawn in front of the Cricket Club, as in the photographs
+    {
+      const club = byName(city, LANDMARKS.padang.cricketClub.match);
+      if (club) {
+        const cc = centroid(club.p), dx = pad.x - cc.x, dy = pad.y - cc.y, dl = Math.hypot(dx, dy) || 1;
+        const tents = [], poles = [];
+        for (let i = 0; i < 7; i++) {
+          const along = (i - 3) * 9.5, back = 22 + (i % 2) * 4;
+          const tx = cc.x + dx / dl * back + (-dy / dl) * along, ty = cc.y + dy / dl * back + (dx / dl) * along;
+          tents.push(new THREE.ConeGeometry(4.2, 3.4, 4).rotateY(Math.PI / 4).translate(tx, 3.6 + 1.7, -ty));
+          tents.push(new THREE.BoxGeometry(5.2, 2.6, 5.2).translate(tx, 1.3 + 0.05, -ty));
+          poles.push(new THREE.CylinderGeometry(0.07, 0.07, 5.5, 5).translate(tx, 2.75, -ty));
+        }
+        const mt = list => mergeGeometries(list.map(x => { x = x.index ? x.toNonIndexed() : x; x.deleteAttribute('uv'); return x; }));
+        g.add(new THREE.Mesh(mt(tents), new THREE.MeshStandardMaterial({ color: 0xece8dc, roughness: 0.8, emissive: new THREE.Color(0.2, 0.19, 0.16) })), new THREE.Mesh(mt(poles), M.heritageDark));
+      }
+    }
   }
 
   // rain trees ringing the lawn, each with an uplight, and the Victoria Concert Hall clock tower

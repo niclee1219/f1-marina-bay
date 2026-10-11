@@ -178,10 +178,22 @@ export const TITLE = { word: 'SINGAPORE', sub: 'GRAND PRIX' };
 // start dolly's length, the least time between whole-track aerials, and how far ahead (race
 // seconds at 1x) it looks for an overtake to cut to.
 export const DIRECTOR = {
-  shot: { tv: [6, 10], chase: [6, 9], onboard: [6, 9], heli: [7, 10], wide: [7, 10] },
+  shot: { tv: [6, 10], chase: [6, 9], onboard: [6, 9], heli: [7, 10], wide: [7, 10], flyin: [12, 12] },
+  // pit cable cam: starts this many replay seconds before the car comes to rest in its box, ends after the release
+  pitLead: 11, pitTail: 6, pitEvery: 25, flyEvery: 150,
   startDolly: 6.5,
   wideEvery: 45,
   lookahead: 12,
+};
+
+// The helicopter fly-in (camera.js 'flyin'): a flight from Marina Bay Sands across the bay to the pit
+// building. path: camera positions (scene metres: x east, y up, z south); the aim swings from `from`
+// (the tower's crown) to `to` (the pit lane); dur: seconds.
+export const FLYIN = {
+  dur: 12,
+  path: [[110, 220, 960], [300, 165, 700], [470, 110, 330], [610, 70, 20], [650, 42, -140]],
+  from: [193, 150, 704],
+  to: [545, 12, -150],
 };
 
 // City traffic (src/traffic.js): roads at least minWidth wide, kept circuitGap metres clear of the

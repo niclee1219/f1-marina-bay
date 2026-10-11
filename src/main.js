@@ -221,7 +221,7 @@ async function boot() {
       const i = order.findIndex(d => d.k === state.focusK);
       const j = Math.max(0, Math.min(order.length - 1, i + (e.key === 'ArrowUp' ? -1 : 1)));
       state.focusK = order[j].k;
-    } else if (/^[1-6]$/.test(e.key)) setCamera(MODES[+e.key - 1]);
+    } else if (/^[1-5]$/.test(e.key)) setCamera(MODES[+e.key - 1]);
     else if (e.key === 'h' || e.key === 'H') ui.toggleClean();
     else if (e.key === 'd' || e.key === 'D') lateralView.toggle();
     else if (e.key === 'f' || e.key === 'F') director.follow = !director.follow;

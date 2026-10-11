@@ -3,10 +3,13 @@
 // whole-track aerial. A change of shot glides from the current view (blend) unless asked to cut.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CAMERA } from './config.js';
+import { CAMERA, FLYIN } from './config.js';
+
+const UP = new THREE.Vector3(0, 1, 0);
 
 // 'auto' is the Director (autodirector.js picking shots); the rest are camera modes here
-export const MODES = ['auto', 'orbit', 'tv', 'chase', 'onboard', 'heli'];
+// ('tv', the trackside cuts, is a shot the Director uses, no longer a button of its own)
+export const MODES = ['auto', 'orbit', 'chase', 'onboard', 'heli'];
 const ease = k => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
 // Opening aerial shots (scene coordinates). `narrow` is used on portrait / phone screens.
 export const OVERVIEW = {
@@ -17,8 +20,8 @@ export const OVERVIEW = {
   narrow: { pos: [624, 380, 376], target: [484, 0, -74], fov: 55 },
 };
 
-export const MODE_LABELS = { auto: 'Director', orbit: 'Free', tv: 'Broadcast', chase: 'Chase', onboard: 'Onboard', heli: 'Helicopter' };
-const AERIAL = new Set(['heli', 'wide', 'orbit']);
+export const MODE_LABELS = { auto: 'Broadcast', orbit: 'Free', tv: 'Trackside', chase: 'Chase', onboard: 'Onboard', heli: 'Helicopter', flyin: 'Fly-in', cable: 'Pit cable' };
+const AERIAL = new Set(['heli', 'wide', 'orbit', 'flyin', 'cable']);
 export const isAerial = m => AERIAL.has(m);
 
 export class Director {
@@ -169,6 +172,8 @@ export class Director {
       this.wideA = Math.atan2(cam.position.x - c.x, cam.position.z - c.z);
     }
     if (m === 'dolly') this.dollyT = 0;
+    if (m === 'flyin') this.flyT = 0;
+    if (m === 'cable') { this.cable = null; this.cableSide = null; }
     this.blend = blend > 0 && prev !== m ? { t: 0, dur: blend, pos: cam.position.clone(), q: cam.quaternion.clone(), fov: cam.fov } : null;
   }
 
@@ -245,6 +250,24 @@ export class Director {
       this.setNear(THREE.MathUtils.clamp(Math.min(byTarget, byHeight), F.nearMin, F.nearMax));
       return;
     }
+    if (this.mode === 'flyin') {
+      // helicopter fly-in from Marina Bay Sands across the bay to the pit building: the camera runs along a
+      // path while its aim swings from the tower's crown to the pit lane (src/config.js FLYIN)
+      this.flyT += dt;
+      const F = FLYIN, u = Math.min(1, this.flyT / F.dur);
+      if (!this.flyPath) this.flyPath = new THREE.CatmullRomCurve3(F.path.map(p => new THREE.Vector3(...p)), false, 'catmullrom', 0.5);
+      this.flyPath.getPoint(ease(u) * 0.7 + u * 0.3, cam.position);
+      const k = THREE.MathUtils.smoothstep(u, 0.15, 0.85);
+      this.look.set(F.from[0], F.from[1], F.from[2]).lerp(new THREE.Vector3(...F.to), k);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(this.look);
+      const fov = THREE.MathUtils.lerp(52, 38, k);
+      if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
+      this.setNear(2);
+      this.done = u >= 1;
+      this.applyBlend(dt);
+      return;
+    }
     if (this.mode === 'wide') {
       // the whole circuit from high up, slowly circling it
       const c = this.trackC, R = this.trackR;
@@ -317,6 +340,21 @@ export class Director {
       lerp = 1;
       this.speedFactor = sp;
       this.setNear(0.03);
+    } else if (this.mode === 'cable') {
+      // pit cable cam: straight down on the pit lane from 24 m, riding along it with the car on a damped
+      // wire, so the stop (crew running out, jacks, wheels off and on) reads from above
+      if (!this.cable) this.cable = p.clone();
+      this.cable.lerp(p, 1 - Math.exp(-2.4 * dt));
+      // steeply from above and from the track side of the lane (the pit building's roof overhangs the garage side)
+      const near = this.track.nearest(this.cable.x, this.cable.z);
+      const away = new THREE.Vector3(this.track.P[near.i].x - this.cable.x, 0, this.track.P[near.i].z - this.cable.z);
+      if (away.lengthSq() < 4) away.set(-d.z, 0, d.x); else away.normalize();
+      this.cableSide = (this.cableSide || away.clone()).lerp(away, 1 - Math.exp(-3 * dt)).normalize();
+      wantPos = this.cable.clone().addScaledVector(this.cableSide, 6.5).add(new THREE.Vector3(0, 18, 0));
+      wantLook = this.cable.clone();
+      fov = 46;
+      lerp = 1;
+      this.setNear(1);
     } else if (this.mode === 'heli') {
       // behind and to one side; if a deck or tower hides the car, swing round to the other side
       if (this.first || !this.heliSide) { this.heliSide = 1; this.heliHidden = 0; }
@@ -367,7 +405,7 @@ export class Director {
       this.smoothFov += (fov - this.smoothFov) * (1 - Math.pow(0.05, dt));
     }
     cam.position.copy(this.pos);
-    cam.up.set(0, 1, 0);
+    cam.up.copy(UP);
     cam.lookAt(this.look);
     if (this.mode === 'onboard') { cam.rotateX(-CAMERA.onboard.pitch); cam.rotateZ(this.lean); cam.rotateY(this.lookYaw || 0); }
     if (Math.abs(cam.fov - this.smoothFov) > 0.01) {
