@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
+import { buildRoads } from './roads.js';
 import { elevatedRoadKeys } from './viaducts.js';
 import { COLORS, NIGHT } from './config.js';
 
@@ -454,34 +455,8 @@ export function buildCity(scene, city, hidden = () => false) {
     new THREE.MeshStandardMaterial({ color: 0x0f261a, roughness: 1, emissive: 0x04100a, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 }));
   group.add(parks);
 
-  // roads: flat ribbons (expressway viaducts are built as elevated decks in viaducts.js)
-  const elevated = elevatedRoadKeys(city);
-  const roadPos = [];
-  for (const r of city.roads) {
-    const p = r.p, hw = r.w / 2;
-    let up = 0;
-    for (let i = 0; i < p.length; i += 2) if (elevated.has(`${Math.round(p[i])},${Math.round(p[i + 1])}`)) up++;
-    if (up * 2 >= p.length / 2) continue;
-    for (let i = 0; i + 3 < p.length; i += 2) {
-      const ax = p[i], ay = -p[i + 1], bx = p[i + 2], by = -p[i + 3];
-      const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
-      const nx = -dy / L * hw, ny = dx / L * hw;
-      roadPos.push(ax + nx, 0.05, ay + ny, ax - nx, 0.05, ay - ny, bx + nx, 0.05, by + ny,
-        ax - nx, 0.05, ay - ny, bx - nx, 0.05, by - ny, bx + nx, 0.05, by + ny);
-    }
-  }
-  const roadGeo = new THREE.BufferGeometry();
-  roadGeo.setAttribute('position', new THREE.Float32BufferAttribute(roadPos, 3));
-  roadGeo.setAttribute('normal', new THREE.Float32BufferAttribute(
-    new Float32Array(roadPos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
-  // dark grey-blue asphalt with a warm sodium-light lift (NIGHT.lift), drawn over water / parks
-  const lift = NIGHT.lift;
-  const roads = new THREE.Mesh(roadGeo, new THREE.MeshStandardMaterial({
-    color: 0x22252d, roughness: 0.9, side: THREE.DoubleSide,
-    emissive: new THREE.Color(0.1 + lift * 1.4, 0.075 + lift * 1.1, 0.05 + lift * 0.9).multiplyScalar(0.28),
-    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4,
-  }));
-  group.add(roads);
+  // roads: asphalt with markings, kerbs and pavements (roads.js); expressway decks in viaducts.js
+  group.add(buildRoads(city, elevatedRoadKeys(city)));
 
   // buildings: real OSM footprints and heights; materials from the OSM use / heritage tags
   const geos = [], domes = [], beacons = [], masts = [];
