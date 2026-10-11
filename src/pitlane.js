@@ -185,7 +185,7 @@ function textTex(lines, w, h, bg, fg) {
 }
 
 // Lane surface and markings, the entry / exit lines on the circuit, speed-limit lines and boards,
-// bollards on the entry and exit noses, and the pit exit light. Returns { setExit(open) }.
+// bollards on the entry and exit noses, and the pit exit light. Returns { setExit(exitOpen, entryOpen) }.
 export function buildPitLane(track, g) {
   const L = track.lane;
   const out = { setExit() {} };
@@ -234,6 +234,8 @@ export function buildPitLane(track, g) {
   line(L.exitGap, L.length, u => L.inner(u) + 0.25, 0.14);
   // speed-limit lines across the lane, with the limit painted before / after them
   for (const u of [D.limitFrom, D.limitTo]) white.push(L.strip(u - 0.3, u + 0.3, L.inner(u), L.outer(u), 0.02, 0.6));
+  // yellow dashes along the garage line, in front of the boxes (pit-lane photo, references/)
+  for (let u = L.boxFrom; u < L.boxTo - 1; u += 2.4) line(u, u + 1.2, W.garage - 0.35, 0.1, yellow);
   const merge = list => mergeGeometries(list.map(x => { if (x.attributes.uv) x.deleteAttribute('uv'); return x; }));
   g.add(new THREE.Mesh(merge(white), decal(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.85, 0.85, 0.85) }))));
   if (yellow.length) g.add(new THREE.Mesh(merge(yellow), decal(new THREE.MeshBasicMaterial({ color: 0xd8b21d }))));
@@ -311,9 +313,40 @@ export function buildPitLane(track, g) {
   sig.rotation.y = Math.atan2(-et.x, -et.z);   // local +z toward the oncoming cars
   sig.name = 'pit-exit-light';
   g.add(sig);
-  out.setExit = (open) => {
-    red.color.setRGB(open ? 0.15 : 6, 0, 0);
-    green.color.setRGB(0, open ? 5 : 0.15, 0);
+  // pit entry light: the same post at the entry nose, facing cars as they peel off
+  const ui = Math.min(L.entryGap + 4, L.length / 4);
+  const ip = L.point(ui, L.inner(ui) - 0.8), { t: it } = L.frame(ui);
+  const sigIn = sig.clone();
+  const redIn = red.clone(), greenIn = green.clone();
+  sigIn.children[2].material = redIn; sigIn.children[3].material = greenIn;
+  sigIn.position.set(ip.x, ip.y - 0.18, ip.z);
+  sigIn.rotation.y = Math.atan2(-it.x, -it.z);
+  sigIn.name = 'pit-entry-light';
+  g.add(sigIn);
+
+  // PIT ENTRY / PIT EXIT boards: plain text on posts, facing the cars, on the pit-wall side
+  const boardTex = textTex([['PIT ENTRY', 96, 64], ['PIT EXIT', 96, 192]], 512, 256, '#101216', '#f2f2f2');
+  const boards = [], bposts = [];
+  for (const [u, row] of [[Math.max(2, L.entryGap - 12), 0], [Math.min(L.length - 2, L.exitGap + 10), 1]]) {
+    const p = L.point(u, L.inner(u) - 1.6), { t } = L.frame(u);
+    const q = new THREE.PlaneGeometry(3.2, 0.8);
+    const uv = q.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setY(i, row ? uv.getY(i) * 0.5 : 0.5 + uv.getY(i) * 0.5);
+    q.rotateY(Math.atan2(-t.x, -t.z)).translate(p.x, p.y + 2.6, p.z);
+    boards.push(q);
+    for (const s of [-1.3, 1.3]) {
+      const side = new THREE.Vector3(-t.z, 0, t.x).multiplyScalar(s);
+      bposts.push(new THREE.CylinderGeometry(0.05, 0.05, 2.6, 6).translate(p.x + side.x, p.y + 1.1, p.z + side.z));
+    }
+  }
+  g.add(new THREE.Mesh(mergeGeometries(bposts), steel));
+  g.add(new THREE.Mesh(mergeGeometries(boards), new THREE.MeshBasicMaterial({ map: boardTex, side: THREE.DoubleSide })));
+
+  out.setExit = (open, entry = open) => {
+    for (const [r, gr, on] of [[red, green, open], [redIn, greenIn, entry]]) {
+      r.color.setRGB(on ? 0.15 : 6, 0, 0);
+      gr.color.setRGB(0, on ? 5 : 0.15, 0);
+    }
   };
   out.setExit(true);
   return out;

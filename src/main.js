@@ -271,8 +271,9 @@ async function boot() {
       ui.updateMinimap(cars.cars, order, state.focusK);
       cars.setPositions(order);
       ui.toasts(state.prevToastT, t);
-      // pit exit is closed until the start (races) and under a red flag
-      pit.setExit(!(race.isRace && t < race.race_start) && race.flagState(t).label !== 'RED');
+      // pit exit is closed until the start (races) and under a red flag, the entry only under a red flag
+      const red = race.flagState(t).label === 'RED';
+      pit.setExit(!(race.isRace && t < race.race_start) && !red, !red);
       state.prevToastT = t;
     }
     slowAcc += dt;

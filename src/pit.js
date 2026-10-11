@@ -53,7 +53,7 @@ function inRing(p, x, y) {
 // returns. The word runs along the roof and reads left to right from the grandstands across the
 // track, and from the overhead TV shot. The glyphs are a 9-letter subset of three.js's Helvetiker
 // Bold (assets/fonts/roof-letters.json), loaded after the scene is up; two merged meshes.
-const LEAN = THREE.MathUtils.degToRad(50);   // from vertical, top toward the paddock
+const LEAN = THREE.MathUtils.degToRad(68);   // from vertical, top toward the paddock: low from the pit lane
 function buildRoofLetters(g, L, word, o) {
   Promise.all([import('three/addons/loaders/FontLoader.js'), import('three/addons/geometries/TextGeometry.js'), fetch('assets/fonts/roof-letters.json').then(r => r.json())])
     .then(([{ Font }, { TextGeometry }, json]) => {
@@ -147,7 +147,7 @@ function slice(geo, start, count) {
 
 export function buildPitComplex(g, city, race, track) {
   const L = track.lane;
-  const out = { decks: [], setExit: open => track.pitLaneCtl && track.pitLaneCtl.setExit(open) };
+  const out = { decks: [], setExit: (open, entry = open) => track.pitLaneCtl && track.pitLaneCtl.setExit(open, entry) };
   const lay = L && garageLayout(L, race);
   if (!lay) return out;
   const G = P.garage, GD = P.garageDepth;
@@ -348,7 +348,7 @@ export function buildPitComplex(g, city, race, track) {
   }
   buildRoofLetters(g, L, letters, {
     at: i => u0 + margin + (i + 0.5) * bay,
-    w: u => G + 0.1 * dRoof(u), h: HR + 0.1,
+    w: u => G + 0.14 * dRoof(u), h: HR + 0.1,
     size: Math.min(0.8 * bay, 0.72 * K.depth, 20),
   });
 
