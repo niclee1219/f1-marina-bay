@@ -84,6 +84,7 @@ async function boot() {
   const water = buildWater(scene, city, renderer);
   await step(0.86, 'Laying the circuit');
   const track = new Track(race);
+  track.envMap = reflect.texture;   // the asphalt picks up the floodlights' reflection (src/reflect.js)
   track.pitFootprint = (city.buildings.find(b => b.n === 'F1 Pit Building') || {}).p;
   track.cameraRef = camera;   // lantern glow cards face the camera
   const viaducts = new Viaducts(city, track, race);

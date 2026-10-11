@@ -195,7 +195,7 @@ export function buildPitLane(track, g) {
   // lane asphalt: smoother and darker than the circuit, sits just under the track surface so the
   // track wins where the entry and exit roads overlap it
   const surf = L.strip(0, L.length, u => L.inner(u), u => L.outer(u), -0.012);
-  g.add(new THREE.Mesh(surf, decal(new THREE.MeshStandardMaterial({ color: 0x3a3c43, roughness: 0.78, emissive: new THREE.Color(0.1, 0.103, 0.112) }))));
+  g.add(new THREE.Mesh(surf, decal(new THREE.MeshStandardMaterial({ color: 0x16171b, roughness: 0.6, metalness: 0.06, emissive: new THREE.Color(0.026, 0.027, 0.03) }))));
 
   const white = [], yellow = [];
   const line = (u0, u1, w, half = 0.12, list = white) => {

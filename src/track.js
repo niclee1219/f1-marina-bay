@@ -306,24 +306,41 @@ export class Track {
     this.group = g;
     this.atlas = sponsorAtlas();
 
-    // ---------- asphalt: aggregate texture, floodlight pools, rubbered-in line
+    // ---------- asphalt: dark aggregate, a rubbered-in racing line, patches, seams, manholes and the
+    // painted lane dividers of the public road; glossy enough to catch the floodlights
     const asphaltTex = canvasTex(512, 512, (c, w, h) => {
-      c.fillStyle = '#25272c'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#0d0e10'; c.fillRect(0, 0, w, h);
       const img = c.getImageData(0, 0, w, h);
-      for (let i = 0; i < img.data.length; i += 4) {
-        const v = (Math.random() - 0.5) * 18 + (Math.random() < 0.04 ? 22 : 0);
+      for (let i = 0; i < img.data.length; i += 4) {      // fine aggregate: dark tar with pale chips
+        const v = (Math.random() - 0.5) * 14 + (Math.random() < 0.05 ? 20 : 0) - (Math.random() < 0.05 ? 7 : 0);
         img.data[i] += v; img.data[i + 1] += v; img.data[i + 2] += v + 1;
       }
       c.putImageData(img, 0, 0);
     });
     asphaltTex.repeat.set(4, 1 / 4);
-    const asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.72, metalness: 0.05 });
+    const asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.5, metalness: 0.08, envMap: this.envMap || null, envMapIntensity: 0.3 });
+    // where the racing line runs: lateral offset (m) toward the inside of the bends, from the
+    // centreline's curvature smoothed over ~60 m, so the rubbered-in strip tracks the apexes
+    const lineOff = (() => {
+      const n = this.n, ds = this.length / n, out = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const a = this.T[(i + 1) % n], b = this.T[(i - 1 + n) % n], N = this.N[i];
+        out[i] = ((a.x - b.x) * N.x + (a.z - b.z) * N.z) / (2 * ds);
+      }
+      const W = Math.max(1, Math.round(30 / ds));
+      for (let pass = 0; pass < 2; pass++) {
+        const src = out.slice();
+        for (let i = 0; i < n; i++) { let t = 0; for (let k = -W; k <= W; k++) t += src[(i + k + n) % n]; out[i] = t / (2 * W + 1); }
+      }
+      for (let i = 0; i < n; i++) out[i] = Math.max(-4.2, Math.min(4.2, out[i] * 150));
+      return out;
+    })();
     asphalt.onBeforeCompile = (s) => {
       s.uniforms.uZones = this.zoneUniform;
-      s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vTrackUv;')
-        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvTrackUv = uv;');
+      s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vTrackUv; attribute float aLine; varying float vLine;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvTrackUv = uv; vLine = aLine;');
       s.fragmentShader = s.fragmentShader.replace('#include <common>', `#include <common>
-          varying vec2 vTrackUv; uniform vec4 uZones[${MAX_ZONES}];
+          varying vec2 vTrackUv; varying float vLine; uniform vec4 uZones[${MAX_ZONES}];
           float zoneShade(float d){
             float v = 1.0;
             for (int k = 0; k < ${MAX_ZONES}; k++) {
@@ -332,18 +349,65 @@ export class Track {
               v = min(v, 1.0 - (1.0 - z.z) * w);
             }
             return v;
-          }`)
+          }
+          float hash21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float vnoise(vec2 p) {
+            vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(hash21(i), hash21(i + vec2(1, 0)), f.x), mix(hash21(i + vec2(0, 1)), hash21(i + vec2(1, 1)), f.x), f.y);
+          }
+          // a painted line of half-width w at distance d, fading out once it is under a pixel wide
+          float paint(float d, float w, float fw) { return (1.0 - smoothstep(w - fw, w + fw, d)) * clamp(2.0 * w / fw - 0.3, 0.0, 1.0); }`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          roughnessFactor = clamp(roughnessFactor + 0.2 * patchN - 0.1 * rubber, 0.3, 0.9);`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          vec2 tm = vec2((vTrackUv.x - 0.5) * ${(2 * HALF).toFixed(2)}, vTrackUv.y);   // metres: across (+ = outer edge), along
+          float fwm = max(fwidth(tm.x), 1e-4);
+          float patchN = vnoise(tm * vec2(0.33, 0.12)), patchN2 = vnoise(tm * vec2(0.9, 0.35) + 17.0);
+          float lineD = abs(tm.x - vLine);
+          float rubber = exp(-lineD * lineD / 1.3) * 0.45 + exp(-lineD * lineD / 7.0) * 0.2;       // the rubbered-in line and its shoulders
+          float marbles = exp(-pow(abs(lineD - 3.6), 2.0) / 0.9) * 0.12;                              // loose rubber just off the line
+          float seam = paint(abs(fract(tm.y / 37.0 + 0.37) - 0.5) * 37.0 - 18.5 + 0.03, 0.025, fwidth(tm.y));   // transverse joints
+          float patchEdge = smoothstep(0.52, 0.55, patchN2) - smoothstep(0.62, 0.65, patchN2);          // resurfaced patches: a shade lighter
+          diffuseColor.rgb *= 1.0 + 0.25 * patchEdge;
+          diffuseColor.rgb *= 1.0 - 0.1 + 0.2 * patchN;                                                   // mottled tone
+          diffuseColor.rgb *= 1.0 - 0.5 * rubber;
+          diffuseColor.rgb += marbles * 0.04;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.04), seam * 0.6);
+          // painted lane dividers of the public road: white, 3 m dash 9 m gap, a line every ~3.5 m
+          float lane = ${(2 * HALF / 4).toFixed(3)};
+          float lx = tm.x + ${HALF.toFixed(2)};
+          float kk = clamp(floor(lx / lane + 0.5), 1.0, 3.0);
+          float dash = step(fract(tm.y / 12.0), 0.25);
+          float wl = paint(abs(lx - kk * lane), 0.07, fwm) * dash;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5), wl * 0.85 * (1.0 - 0.5 * rubber));
+          // manhole covers: one in about three cells of 14 x 41 m
+          vec2 mc = vec2(tm.x / 14.0 + 0.5, tm.y / 41.0);
+          vec2 mid = floor(mc); vec2 mf = fract(mc);
+          float mh = hash21(mid + 3.7);
+          vec2 mpos = vec2(0.15 + 0.7 * hash21(mid + 9.1), 0.2 + 0.6 * hash21(mid + 5.3));
+          vec2 md = (mf - mpos) * vec2(14.0, 41.0);
+          float mr = length(md);
+          float cover = step(0.62, mh) * (1.0 - smoothstep(0.34, 0.37, mr));
+          float ring = step(0.62, mh) * paint(abs(mr - 0.37), 0.025, fwm);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05, 0.05, 0.055), cover);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2), ring * 0.8);`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           float along = fract(vTrackUv.y / ${TRUSS.every.toFixed(1)});
           float pa = (along - 0.5) * 3.2; float pool = exp(-pa * pa);   // (pow() of a negative base is NaN in GLSL)
           float side = 1.0 - smoothstep(0.0, 1.0, abs(vTrackUv.x - 0.5) * 2.0) * 0.25;
-          totalEmissiveRadiance += vec3(0.135, 0.137, 0.145) * (1.0 + 0.3 * pool) * side;   // near-white under the unbroken trusses, as in the aerials
+          totalEmissiveRadiance += vec3(0.022, 0.023, 0.026) * (1.0 + 0.45 * pool) * side * (1.0 - 0.4 * rubber);   // floodlit tarmac, pools under the trusses
           float px = (vTrackUv.x - 0.5) * 4.0; diffuseColor.rgb *= 1.0 - 0.2 * exp(-px * px);
           // bridge zones: the deck structure blocks part of the floodlighting
           float zs = zoneShade(vTrackUv.y);
           diffuseColor.rgb *= zs; totalEmissiveRadiance *= zs;`);
     };
-    g.add(new THREE.Mesh(this.ribbon(-HALF, HALF, 0), asphalt));
+    const asphaltGeo = this.ribbon(-HALF, HALF, 0);
+    {
+      const cnt = asphaltGeo.attributes.position.count / 2, la = new Float32Array(cnt * 2);
+      for (let c = 0; c < cnt; c++) la[c * 2] = la[c * 2 + 1] = lineOff[c % this.n];
+      asphaltGeo.setAttribute('aLine', new THREE.BufferAttribute(la, 1));
+    }
+    g.add(new THREE.Mesh(asphaltGeo, asphalt));
     // painted verges up to the wall, as at Marina Bay: a yellow band on the track edge, a thin
     // white line, then Singapore blue (references/). uv.x runs inner -> outer edge of each ribbon.
     const verge = (flip) => {
