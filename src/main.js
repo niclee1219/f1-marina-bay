@@ -22,6 +22,7 @@ import { elevatedRoadKeys } from './viaducts.js';
 import { AutoDirector } from './autodirector.js';
 import { Director, MODES } from './camera.js';
 import { Cockpit } from './cockpit.js';
+import { Reflections } from './reflect.js';
 import { LateralView } from './lateralview.js';
 import { CAMERA, HAZE } from './config.js';
 import { UI } from './ui.js';
@@ -64,7 +65,8 @@ async function boot() {
   const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, CAMERA.free.nearMin, CAMERA.free.far);
   scene.add(camera);   // the onboard cockpit (src/cockpit.js) hangs off the camera
   camera.layers.enable(1);   // layer 1: drawn, but not in the water reflection (crowd, roads, street furniture, traffic)
-  const cockpit = new Cockpit(camera);
+  const reflect = new Reflections(renderer, scene);
+  const cockpit = new Cockpit(camera, reflect.texture);
 
   scene.add(new THREE.HemisphereLight(0x4a5a8a, 0x1a1210, 0.5));
   const moon = new THREE.DirectionalLight(0x9fb4ff, 0.55);
@@ -101,7 +103,7 @@ async function boot() {
   track.inPaddock = pit.inPaddock;
   const crew = new PitCrew(scene, race, track);
   const identity = new Identity(track, race, track.group);
-  const cars = new Cars(scene, race, track, bridges);
+  const cars = new Cars(scene, race, track, bridges, reflect.texture);
   const lateralView = new LateralView(scene, track, cars);   // D: where the telemetry puts cars vs where they are drawn
   const crowd = new Crowd(scene, track, race, pit.decks);
   const streets = new Streets(scene, city, track, elevatedRoadKeys(city));
@@ -254,8 +256,15 @@ async function boot() {
     autoDir.update(dt, t, state.playing ? state.speed : 1);
     if (cockpit.root.visible) {
       cockpit.setTeam(race.drivers[state.focusK].color);
+      const ty = race.tyre(state.focusK, t);
+      cockpit.setCompound(ty && ty.comp);
       cockpit.update(dt, state.playing ? dt * state.speed : 0, cars.cars[state.focusK].tel, cars.cars[state.focusK].steer, director.lookYaw || 0);
       cockpit.renderMirrors(renderer, scene);
+    }
+    // surroundings the bodywork reflects: captured at the focused car, left out of its own reflection
+    {
+      const fc = cars.cars[state.focusK];
+      reflect.update(fc.world.clone().setY(fc.world.y + 1), [cockpit.root, fc.root], ['onboard', 'chase', 'tv', 'dolly'].includes(director.mode));
     }
 
     // start lights: one per second, out at lights-out, on the gantry and as the HUD graphic

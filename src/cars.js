@@ -346,7 +346,7 @@ export function buildDecals(car, decals, shade) {
 
 // ---------------------------------------------------------------- cars
 export class Cars {
-  constructor(scene, race, track, bridges = null) {
+  constructor(scene, race, track, bridges = null, envMap = null) {
     this.race = race; this.track = track; this.bridges = bridges;
     this.sparks = new Sparks(scene);
     const BODY = bodyGeometry();
@@ -402,19 +402,21 @@ export class Cars {
         new THREE.Color(0x030304),
       ];
       const shade = { value: 1 };
-      const bodyMat = shaded(new THREE.MeshStandardMaterial({
-        vertexColors: true, metalness: 0.35, roughness: 0.3,
+      // glossy paint under a clear coat, reflecting the live surroundings map (src/reflect.js)
+      const bodyMat = shaded(new THREE.MeshPhysicalMaterial({
+        vertexColors: true, metalness: 0.5, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.05,
+        envMap, envMapIntensity: 1.5,
       }), shade, 0.2);
-      const tyreMat = shaded(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.2 }), shade);
+      const tyreMat = shaded(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.2, envMap, envMapIntensity: 0.35 }), shade);
       const root = new THREE.Group();
       const car = new THREE.Group();
       root.add(car);
       car.add(new THREE.Mesh(paint(BODY, pal), bodyMat));
       const nth = teamSeen.get(d.team) || 0; teamSeen.set(d.team, nth + 1);
       // helmet with dark visor; T-cam black on the first car of a team, yellow on the second
-      const helmet = new THREE.Mesh(helmetGeo, shaded(new THREE.MeshStandardMaterial({ color: pal[2].clone().lerp(col, 0.4), roughness: 0.35, metalness: 0.2 }), shade));
+      const helmet = new THREE.Mesh(helmetGeo, shaded(new THREE.MeshStandardMaterial({ color: pal[2].clone().lerp(col, 0.4), roughness: 0.3, metalness: 0.25, envMap, envMapIntensity: 1.2 }), shade));
       helmet.position.set(0, 0.84, 0.3);
-      const visor = new THREE.Mesh(visorGeo, shaded(new THREE.MeshStandardMaterial({ color: 0x050608, metalness: 0.9, roughness: 0.1 }), shade));
+      const visor = new THREE.Mesh(visorGeo, shaded(new THREE.MeshStandardMaterial({ color: 0x050608, metalness: 0.9, roughness: 0.08, envMap, envMapIntensity: 2 }), shade));
       visor.position.copy(helmet.position);
       car.add(helmet, visor);
       const tcam = new THREE.Mesh(box(0.2, 0.07, 0.12, 0, 1.17, -0.02),

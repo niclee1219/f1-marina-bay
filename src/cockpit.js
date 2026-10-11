@@ -6,6 +6,7 @@
 // The focused car's own model is hidden in this view (cars.js), so nothing clips the lens.
 import * as THREE from 'three';
 import { STEERING, CAMERA } from './config.js';
+import { TYRES } from './data.js';
 
 const EYE = 0.74;                      // driver's eye height above the road (m)
 const AXLE = 1.5;                      // front axle ahead of the eyes (m)
@@ -44,7 +45,7 @@ function nightEnv() {
 }
 
 export class Cockpit {
-  constructor(camera) {
+  constructor(camera, envTexture = null) {
     this.root = new THREE.Group();
     this.root.visible = false;
     this.root.renderOrder = 10;
@@ -55,13 +56,13 @@ export class Cockpit {
 
     // Nothing is pure black: dark greys with roughness variation, a faint blue emissive so edges
     // read against the night sky, and the shared night env map for floodlight highlights.
-    const env = nightEnv();
+    const env = envTexture || nightEnv();   // the live surroundings map (src/reflect.js) when given
     const std = (o) => new THREE.MeshStandardMaterial({ envMap: env, ...o });
     const carbon = std({ color: 0x3a3d45, roughness: 0.5, metalness: 0.45, emissive: 0x0b1018, envMapIntensity: 1.1 });
     const satin = std({ color: 0x3b3e46, roughness: 0.6, metalness: 0.3, emissive: 0x080b10, envMapIntensity: 0.9 });
     const rubber = std({ color: 0x35373c, roughness: 0.85, metalness: 0.0, emissive: 0x06080b, envMapIntensity: 0.5 });
     const glove = std({ color: 0x3a3d45, roughness: 0.75, metalness: 0.05, emissive: 0x07090c, envMapIntensity: 0.6 });
-    this.paint = std({ color: 0xcc0000, roughness: 0.22, metalness: 0.35, envMapIntensity: 1.6, side: THREE.DoubleSide });
+    this.paint = new THREE.MeshPhysicalMaterial({ envMap: env, color: 0xcc0000, roughness: 0.25, metalness: 0.45, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 2.2, side: THREE.DoubleSide });
     const add = (geo, mat, parent = this.root) => { const m = new THREE.Mesh(geo, mat); parent.add(m); return m; };
     const tube = (pts, r, mat, seg = 40) => add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), seg, r, 8), mat);
     const y0 = -EYE;   // road level in camera space
@@ -139,6 +140,7 @@ export class Cockpit {
 
     // ------------------------------------------------------------- front tyres + suspension
     this.tyres = [];
+    this.bandMat = new THREE.MeshBasicMaterial({ color: 0xf0f0ec, side: THREE.DoubleSide });
     const hh = TW / 2;
     const prof = [[0.6, -hh], [0.9, -hh], [0.97, -hh * 0.93], [1, -hh * 0.72], [1, hh * 0.72], [0.97, hh * 0.93], [0.9, hh], [0.6, hh]]
       .map(([k, y]) => new THREE.Vector2(k * R, y));
@@ -152,7 +154,6 @@ export class Cockpit {
       const m = w / 2;
       c.fillStyle = '#3a3c42'; c.beginPath(); c.arc(m, m, m, 0, 7); c.fill();
       c.strokeStyle = '#555861'; c.lineWidth = 3; c.beginPath(); c.arc(m, m, m * 0.97, 0, 7); c.stroke();
-      c.strokeStyle = '#ffd12e'; c.lineWidth = 7; c.beginPath(); c.arc(m, m, m * 0.82, 0, 6.3); c.stroke();
       c.fillStyle = '#6a6e78'; c.beginPath(); c.arc(m, m, m * 0.6, 0, 7); c.fill();       // wheel face
       c.fillStyle = '#4a4d56';
       for (let i = 0; i < 5; i++) { const a = i * 1.2566; c.beginPath(); c.arc(m + Math.cos(a) * m * 0.42, m + Math.sin(a) * m * 0.42, m * 0.11, 0, 7); c.fill(); }
@@ -171,6 +172,11 @@ export class Cockpit {
       face.rotation.y = s * Math.PI / 2; face.position.x = s * (hh + 0.002);
       const inner = add(new THREE.CircleGeometry(R * 0.97, 40), sideMat, wheel);   // inboard sidewall, the side the driver sees
       inner.rotation.y = -s * Math.PI / 2; inner.position.x = -s * (hh + 0.002);
+      // compound band on both sidewalls, coloured from the stint's actual tyre (setCompound)
+      for (const side of [-1, 1]) {
+        const band = add(new THREE.RingGeometry(R * 0.78, R * 0.86, 48), this.bandMat, wheel);
+        band.rotation.y = side * Math.PI / 2; band.position.x = side * (hh + 0.004);
+      }
       this.tyres.push({ knuckle, wheel });
       // upper and lower wishbones from the chassis to the upright
       for (const [dy, dz] of [[0.12, 0.2], [-0.1, -0.1]]) {
@@ -255,6 +261,11 @@ export class Cockpit {
     });
 
     this.root.traverse(o => { if (o.isMesh) { o.frustumCulled = false; o.renderOrder = 10; } });
+  }
+
+  // the stint's tyre compound, so the sidewall band matches the real tyre (same colours as the HUD)
+  setCompound(comp) {
+    if (comp !== this.comp) { this.comp = comp; this.bandMat.color.set((TYRES[comp] || TYRES.HARD).c); }
   }
 
   setTeam(color) {

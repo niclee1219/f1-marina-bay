@@ -325,11 +325,6 @@ export function buildPitComplex(g, city, race, track) {
   const letters = 'SINGAPORE';
   const margin = 18, bay = (u1 - u0 - 2 * margin) / letters.length;
   const dRoof = u => depth(u) + 0.5;
-  for (let i = 0; i <= letters.length; i++) {
-    const u = u0 + margin + i * bay;
-    box(u - 0.6, u + 0.6, G - 3.2, G + dRoof(u) - 0.3, HR, HR + 0.7, C(0.2, 0.21, 0.24));
-    box(u - 0.62, u + 0.62, G - 3.2, G + dRoof(u) - 0.3, HR + 0.7, HR + 0.78, C(1.3, 0.75, 0.38), lit);   // lit beam edge
-  }
   box(u0, u1, G - 3.4, G - 3.0, HR, HR + 0.9, C(0.2, 0.21, 0.24));                                    // front parapet
   box(u0, u1, G - 3.42, G - 2.98, HR + 0.9, HR + 0.96, C(1.3, 0.75, 0.38), lit);
   solidPiece(u => Gd(u) + 0.1, u => Gd(u) + 0.5, HR, HR + 0.9, C(0.2, 0.21, 0.24));                // back parapet

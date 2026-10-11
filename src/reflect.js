@@ -1,0 +1,44 @@
+// Live reflections for the cars and the cockpit: a small cube map of the surroundings, captured
+// from the focused car one face per frame (so the cost is a single cheap extra pass, and the whole
+// map refreshes every few frames). Car and cockpit materials use `texture` as their envMap, so the
+// bodywork shows the floodlights, grandstands and track around it. three.js converts the render
+// target to a prefiltered map by itself once `needsPMREMUpdate` is set, which is why roughness works.
+import * as THREE from 'three';
+
+const SIZE = 128;
+
+export class Reflections {
+  constructor(renderer, scene) {
+    this.renderer = renderer;
+    this.scene = scene;
+    this.rt = new THREE.WebGLCubeRenderTarget(SIZE, { type: THREE.HalfFloatType, generateMipmaps: false });
+    this.cam = new THREE.CubeCamera(0.4, 3000, this.rt);
+    this.face = 0;
+    this.seeded = false;
+    this.hidden = [];
+  }
+
+  get texture() { return this.rt.texture; }
+
+  // pos: where the map is captured (world); hide: objects left out of it (the car itself, the cockpit);
+  // active: refresh a face this frame (false = keep the last map; the first call always fills it)
+  update(pos, hide, active) {
+    if (!active && this.seeded) return;
+    const r = this.renderer, prev = r.getRenderTarget(), prevAuto = r.autoClear;
+    this.cam.position.copy(pos);
+    this.cam.updateMatrixWorld(true);
+    const vis = hide.map(o => o.visible);
+    hide.forEach(o => { o.visible = false; });
+    const faces = this.seeded ? [this.face++ % 6] : [0, 1, 2, 3, 4, 5];
+    for (const f of faces) {
+      r.setRenderTarget(this.rt, f);
+      r.clear();
+      r.render(this.scene, this.cam.children[f]);
+    }
+    if (!this.seeded || this.face % 6 === 0) this.rt.texture.needsPMREMUpdate = true;
+    this.seeded = true;
+    hide.forEach((o, i) => { o.visible = vis[i]; });
+    r.setRenderTarget(prev);
+    r.autoClear = prevAuto;
+  }
+}
