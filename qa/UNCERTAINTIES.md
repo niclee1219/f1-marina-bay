@@ -94,7 +94,7 @@ Guessed:
 ## Singapore identity
 - Turn 1-3 run-off width (24 m), extent and stripe widths are read off the reference photos; the
   stripe order (white, gold, thin orange on deep blue) follows them loosely.
-- Floodlight truss length (14 m), height and four heads per truss.
+- Floodlight truss length (22 m), height and seven heads per truss.
 - Corner boards: placed 35 m before each apex on the outside wall; colours chosen to match.
 - DRS detection points are not in OpenF1: each board is 60 m before the last corner ahead of
   its zone. Activation boards are at the start of each measured zone.
@@ -102,3 +102,39 @@ Guessed:
   of the track each post stands on is a guess (and moved off the pit lane where needed).
   Panels light only for what race control reports (yellow / double yellow per sector, green for
   8 s after a clear, red, SC / VSC, chequered); blue flags are per car and are not shown.
+
+## Night pass (qa/night-pass/, matched to the race-weekend photos in references/)
+- Rooftop SINGAPORE: one standing letter per roof bay, white faces on red returns, as in the
+  aerial photo. The typeface (Helvetiker Bold, the only bold sans three.js ships), letter size,
+  the lean (68 deg from vertical, so they read from the air but stay low from the pit lane) and
+  which way they face (the track, reading left to right from the grandstands) are judged from one
+  photo; the real letters may stand more upright and be lit from behind.
+- Pit roof: bays, lit beam edges, plant rooms and condenser banks are generic; the photo only
+  shows a dark roof with lit seams. Paddock Club glazing, balconies, awnings and PADDOCK CLUB
+  lettering are not from a photo of the paddock side (none in references/).
+- Paddock: OSM service lanes behind the building are treated as the paddock's own (no city
+  traffic, units and marquees may stand on them). Marquee shape (barrel roof) is from the aerial.
+- Pit lane: yellow dashes on the garage line follow the pit-lane photo. The pit entry light is
+  red only under a red flag; the PIT ENTRY / PIT EXIT boards and their placement are invented.
+- Roads: lane counts, one-way and class are OSM; where OSM has no lanes tag a default per class is
+  used. Singapore marking style (yellow kerb lines, double on main roads, double white centre
+  line on two-way roads) is general knowledge, not from the photos. Road closures are every public
+  road within 22 m of the circuit or in the paddock, not the official closure plan, so a few
+  side streets may be shut or open differently from the race weekend.
+- Signals: positions are OSM's 209 traffic_signals nodes; the two-phase 44 s cycle and the mast
+  placement on the junction corner are invented. Signals on the closed circuit are off.
+- Street lamps: spacing (34 m, alternating sides) and sodium colour are typical, not surveyed.
+- Office towers: dark blue glass with cyan-lit floors matches the CBD photo in tone; individual
+  towers' real facades (and their LED crowns) are not modelled.
+- Sky: cloud amount and colour, haze band and glow colour are judged from the night photos.
+- Water: the outline is the OSM water rasterised at 4096 px over its bounding box (2048 on low),
+  so the shoreline is accurate to about 2 m (4 m on low).
+
+## Not matched from the references
+- Fireworks, the F1 Village / Padang concert crowd lighting and the coloured light shows on
+  the Fullerton and Marina Bay Sands (references/track) are not modelled.
+- The large SINGAPORE AIRLINES gantry and the SG banner over the start straight keep their
+  existing designs; the photo's DHL band reads as a plain-text wordmark, as everywhere.
+- The track itself does not get as bright from the air as in the long-exposure aerials; it is
+  kept a little darker so the cars and the painted run-offs stay readable.
+- Real per-team hospitality branding in the paddock (only team names on the units).
