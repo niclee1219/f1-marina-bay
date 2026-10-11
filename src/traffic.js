@@ -103,7 +103,8 @@ export class Traffic {
       new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 3.0, 2.6) }), n);
     this.tails = new THREE.InstancedMesh(mergeGeometries([lamp(-2.22, -0.65), lamp(-2.22, 0.65)]),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 0.12, 0.08) }), n);
-    for (const m of [this.body, this.heads, this.tails]) { m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); scene.add(m); }
+    // layer 1: drawn by the main camera, not in the water reflection (main.js)
+    for (const m of [this.body, this.heads, this.tails]) { m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.layers.set(1); scene.add(m); }
 
     this.v = [];
     const c = new THREE.Color();
@@ -138,6 +139,7 @@ export class Traffic {
       mesh.setColorAt(i, c.set(red ? '#c8202a' : '#e8e8e8'));
     });
     mesh.name = 'road-closures';
+    mesh.layers.set(1);
     scene.add(mesh);
     this.barrierCount = cuts.length;
   }

@@ -1,9 +1,7 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { buildComposer, finishComposer } from './post.js';
+import { QUALITY } from './quality.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { loadAll } from './data.js';
 import { buildSky, buildCity, buildWater } from './world.js';
@@ -52,7 +50,7 @@ async function boot() {
   // ---------------------------------------------------------------- renderer
   const stage = document.getElementById('stage');
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, QUALITY.maxDpr));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -64,6 +62,7 @@ async function boot() {
   scene.fog = new THREE.FogExp2(HAZE.fogColor, HAZE.fogDensity);
   const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, CAMERA.free.nearMin, CAMERA.free.far);
   scene.add(camera);   // the onboard cockpit (src/cockpit.js) hangs off the camera
+  camera.layers.enable(1);   // layer 1: drawn, but not in the water reflection (crowd, roads, street furniture, traffic)
   const cockpit = new Cockpit(camera);
 
   scene.add(new THREE.HemisphereLight(0x4a5a8a, 0x1a1210, 0.5));
@@ -104,10 +103,9 @@ async function boot() {
   director.overview();
   await step(0.96);
 
-  const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.9);
-  composer.addPass(bloom);
+  // scene (MSAA on high) + bloom; the speed blur goes in between; then ACES / sRGB, the night grade
+  // and vignette, and FXAA on low (post.js)
+  const { composer } = buildComposer(renderer, scene, camera);
   // radial "zoom" blur + vignette that builds with speed in the chase and onboard cameras
   const speedPass = new ShaderPass({
     uniforms: { tDiffuse: { value: null }, strength: { value: 0 }, center: { value: new THREE.Vector2(0.5, 0.55) }, aspect: { value: 1 } },
@@ -134,7 +132,7 @@ async function boot() {
   });
   speedPass.enabled = false;
   composer.addPass(speedPass);
-  composer.addPass(new OutputPass());
+  finishComposer(composer, renderer);
 
   // ---------------------------------------------------------------- state
   // Races wait on the grid, 7 s before lights out, for the Start button; other sessions once cars
@@ -176,6 +174,11 @@ async function boot() {
   const waterFlat = water.userData.flat;   // same plane and water mask as the reflective water
   waterFlat.visible = false;
   scene.add(waterFlat);
+  // low quality starts with the flat water (the reflection redraws the whole scene)
+  if (!QUALITY.reflections) {
+    water.visible = false; waterFlat.visible = true;
+    document.getElementById('t-reflect')?.classList.remove('on');
+  }
 
   // 'auto' hands the camera to the Director; any other mode glides there from the current view
   function setCamera(m) {

@@ -58,6 +58,8 @@ export class Streets {
         pools.setMatrixAt(i, new THREE.Matrix4().makeScale(14, 1, 14).setPosition(hx, 0.1, hz));
       });
       poles.name = 'street-lamps';
+      // poles and pools are not drawn in the water reflection (layer 1); the lamp heads are
+      poles.layers.set(1); pools.layers.set(1);
       scene.add(poles, heads, pools);
     }
     this.lampCount = lamps.length;
@@ -105,6 +107,7 @@ export class Streets {
         this.masts.setMatrixAt(i, m); this.lampsA.setMatrixAt(i, m); this.lampsB.setMatrixAt(i, m);
       });
       this.masts.name = 'traffic-signals';
+      for (const m of [this.masts, this.lampsA, this.lampsB]) m.layers.set(1);   // not in the water reflection
       scene.add(this.masts, this.lampsA, this.lampsB);
     }
     this.time = 0;

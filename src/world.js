@@ -475,7 +475,9 @@ export function buildCity(scene, city, hidden = () => false) {
   group.add(parks);
 
   // roads: asphalt with markings, kerbs and pavements (roads.js); expressway decks in viaducts.js
-  group.add(buildRoads(city, elevatedRoadKeys(city)));
+  const roads = buildRoads(city, elevatedRoadKeys(city));
+  roads.children.forEach(m => m.layers.set(1));   // flat on the ground: not in the water reflection
+  group.add(roads);
 
   // buildings: real OSM footprints and heights; materials from the OSM use / heritage tags
   const geos = [], domes = [], beacons = [], masts = [];
@@ -711,7 +713,7 @@ export function buildWater(scene, city, renderer) {
         #include <colorspace_fragment>
       }`,
   };
-  const ratio = Math.min(1, 1600 / size.x);
+  const ratio = Math.min(1, 1600 / size.x) * QUALITY.reflect;
   const water = new Reflector(geo, {
     textureWidth: Math.round(size.x * ratio), textureHeight: Math.round(size.y * ratio),
     color: 0x9aa6c0, clipBias: 0.002, shader,

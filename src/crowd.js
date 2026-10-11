@@ -186,6 +186,9 @@ export class Crowd {
     mesh.geometry.setAttribute('aInfo', new THREE.InstancedBufferAttribute(info, 4));
     mesh.computeBoundingSphere();
     mesh.name = 'crowd';
+    // the water reflection skips the crowd (a million triangles for specks): it renders layer 0
+    // only, the main camera both (main.js)
+    mesh.layers.set(1);
     scene.add(mesh);
     this.blocks.push({ mesh, centre, excite: 0 });
   }
