@@ -105,22 +105,36 @@ export class Cockpit {
     const flap = add(new THREE.BoxGeometry(1.7, 0.02, 0.2), this.paint, wing); flap.position.set(0, 0.07, -0.05); flap.rotation.x = 0.2;
     for (const s of [-1, 1]) { const ep = add(new THREE.BoxGeometry(0.02, 0.2, 0.46), this.paint, wing); ep.position.set(s * 0.88, 0.07, 0); }
 
-    // ------------------------------------------------------------- mirrors: small housings on thin stalks
-    const mirrorTex = canvasTex(64, 32, (c, w, h) => {      // faked reflection: sky, track, white edge line
-      const g = c.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#6b7a99'); g.addColorStop(0.45, '#9aa6bd'); g.addColorStop(0.5, '#2f3238'); g.addColorStop(1, '#23252a');
-      c.fillStyle = g; c.fillRect(0, 0, w, h);
-      c.fillStyle = '#e8e8ea'; c.beginPath(); c.moveTo(w * 0.2, h); c.lineTo(w * 0.28, h * 0.5); c.lineTo(w * 0.32, h * 0.5); c.lineTo(w * 0.3, h); c.fill();
-    });
-    const mirrorMat = new THREE.MeshBasicMaterial({ map: mirrorTex, toneMapped: false });
+    // ------------------------------------------------------------- mirrors: tapered housings on thin stalks
+    // Each face shows a real (tiny) render of the scene from behind the car, flipped like a mirror
+    // image; renderMirrors() refreshes them, alternating sides so it costs about one extra pass a frame.
+    const lozenge = (w, h, n = 2.6) => {                  // rounded, tapering toward the outboard edge
+      const pts = [];
+      for (let i = 0; i < 48; i++) {
+        const a = i / 48 * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+        const x = Math.sign(c) * Math.abs(c) ** (2 / n), y = Math.sign(sn) * Math.abs(sn) ** (2 / n);
+        pts.push(new THREE.Vector2(x * w / 2, y * (h / 2) * (1 - 0.28 * (x + 1) / 2)));
+      }
+      return new THREE.Shape(pts);
+    };
+    const faceShape = lozenge(0.12, 0.066);
+    this.mirrors = [];
     for (const s of [-1, 1]) {
       const g = new THREE.Group(); g.position.set(s * 0.44, -0.075, -0.7); g.rotation.y = -s * 0.45; this.root.add(g);
-      add(new THREE.CylinderGeometry(0.007, 0.007, 0.1, 6), carbon, g).position.set(-s * 0.005, -0.05, 0);
-      const housing = add(new THREE.SphereGeometry(0.07, 18, 10), this.paint, g);
-      housing.scale.set(0.9, 0.55, 0.38);
-      const face = add(new THREE.PlaneGeometry(0.115, 0.058), mirrorMat, g);
-      face.position.set(0, 0, 0.0285);
+      add(new THREE.CylinderGeometry(0.006, 0.006, 0.1, 6), carbon, g).position.set(-s * 0.01, -0.05, 0);
+      const housing = add(new THREE.ExtrudeGeometry(lozenge(0.134, 0.078), { depth: 0.03, bevelEnabled: true, bevelSize: 0.006, bevelThickness: 0.008, bevelSegments: 3 }), this.paint, g);
+      housing.position.z = -0.032;
+      const fg = new THREE.ShapeGeometry(faceShape);
+      const uv = fg.attributes.uv;
+      for (let k = 0; k < uv.count; k++) {                 // map the shape to 0..1, flipped: a mirror image
+        uv.setXY(k, 1 - (fg.attributes.position.getX(k) + 0.06) / 0.12, (fg.attributes.position.getY(k) + 0.033) / 0.066);
+      }
+      const rt = new THREE.WebGLRenderTarget(256, 128, { depthBuffer: true });
+      const face = add(fg, new THREE.MeshBasicMaterial({ map: rt.texture, color: 0xdddddd }), g);
+      face.position.z = 0.0105;
+      this.mirrors.push({ g, s, rt, cam: new THREE.PerspectiveCamera(38, 2, 0.5, 1500) });
     }
+    this.mirrorTick = 0;
 
     // ------------------------------------------------------------- front tyres + suspension
     this.tyres = [];
@@ -244,6 +258,21 @@ export class Cockpit {
 
   setTeam(color) {
     if (color !== this.team) { this.team = color; this.paint.color.set(color); }
+  }
+
+  // Refresh one mirror per call (alternating): render the world from the mirror, looking back along the car.
+  renderMirrors(renderer, scene) {
+    if (!this.root.visible) return;
+    const m = this.mirrors[this.mirrorTick++ & 1];
+    this.root.updateWorldMatrix(true, true);
+    const p = new THREE.Vector3(), t = new THREE.Vector3(m.s * 0.44 + m.s * 3.5, -0.2, -0.7 + 10);
+    m.g.getWorldPosition(p);
+    this.root.localToWorld(t);
+    m.cam.position.copy(p); m.cam.up.set(0, 1, 0); m.cam.lookAt(t); m.cam.updateMatrixWorld();
+    const prev = renderer.getRenderTarget(), vis = this.root.visible;
+    this.root.visible = false;
+    renderer.setRenderTarget(m.rt); renderer.render(scene, m.cam);
+    renderer.setRenderTarget(prev); this.root.visible = vis;
   }
 
   // yawRate: rad/s of the car's heading; lookYaw: the camera's look-into-corner yaw (rad), which

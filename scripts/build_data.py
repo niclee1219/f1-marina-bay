@@ -2,9 +2,9 @@
 
 Usage:
   # a race: builds the track geometry from the laps, plus the shared city
-  python3 scripts/build_data.py --session 9896 --id 2025-race --label "2025 Race" --city
+  python3 scripts/build_data.py --session 11388 --id 2026-race --label "2026 Race" --city
   # any other session on the same layout: reuse that race's track geometry
-  python3 scripts/build_data.py --session 11378 --id 2026-fp1 --label "2026 FP1" --track-from data/2025-race/race.json
+  python3 scripts/build_data.py --session 11378 --id 2026-fp1 --label "2026 FP1" --track-from data/2026-race/race.json
 
 Inputs come from scripts/fetch_data.py (raw/<session_key>/ and raw/common/).
 Outputs:

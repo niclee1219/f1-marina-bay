@@ -1,5 +1,13 @@
 [
  {
+  "id": "2026-race",
+  "label": "2026 Race",
+  "name": "Race",
+  "year": 2026,
+  "date": "2026-10-11T12:00:00+00:00",
+  "is_race": true
+ },
+ {
   "id": "2026-quali",
   "label": "2026 Quali",
   "name": "Qualifying",
@@ -30,13 +38,5 @@
   "year": 2026,
   "date": "2026-10-09T08:30:00+00:00",
   "is_race": false
- },
- {
-  "id": "2025-race",
-  "label": "2025 Race",
-  "name": "Race",
-  "year": 2025,
-  "date": "2025-10-05T12:00:00+00:00",
-  "is_race": true
  }
 ]

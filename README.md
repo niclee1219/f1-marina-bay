@@ -1,8 +1,8 @@
 # Marina Bay Night Race — 3D replay
 
 An interactive, stylised 3D map of the **Marina Bay Street Circuit** with a full replay of the
-**2025 Singapore Grand Prix** (5 Oct 2025, won by George Russell), plus sessions from the
-2026 weekend as their data is published (FP1 and Sprint Qualifying so far). All 20 cars move along the
+**2026 Singapore Grand Prix** (11 Oct 2026, won by Max Verstappen), plus the rest of that
+weekend (FP1, Sprint Qualifying, Sprint and Qualifying). All 22 cars move along the
 paths they actually drove, using the recorded car-location telemetry. The city around the track is
 built from real OpenStreetMap footprints.
 
@@ -68,7 +68,7 @@ built from real OpenStreetMap footprints.
 - **Singapore identity** (`src/identity.js`): the Turn 1-3 run-off painted deep blue with white and
   gold stripes and a SINGAPORE wordmark, seated grandstands along the pit straight, floodlight
   trusses, debris fencing with a top rail, corner number boards, DRS detection / activation boards
-  (2025) and marshal posts at MultiViewer's 16 light positions whose panels follow race control
+  (only where a session has DRS) and marshal posts at MultiViewer's 16 light positions whose panels follow race control
   (yellow / double yellow per sector, green after a clear, red, SC / VSC):
   `python3 scripts/fit_marshal_posts.py` maps them onto the track.
 - **Crowds, cars**: ~21k instanced spectators that wave and flash
@@ -135,7 +135,7 @@ server, so these are replays rather than live views. To add a session (find the 
 pip install numpy scipy
 python3 scripts/fetch_data.py --session 11378            # -> raw/11378 (+ raw/common, git-ignored)
 python3 scripts/build_data.py --session 11378 --id 2026-fp1 --label "2026 FP1" \
-    --track-from data/2025-race/race.json                # reuse the race's track geometry
+    --track-from data/2026-race/race.json                # reuse the race's track geometry
 ```
 
 Then refit the pit lane over every built session (it averages all pit stops, so more sessions
@@ -145,8 +145,11 @@ make it better, and boxes are pooled per season):
 python3 scripts/fit_pit_lane.py                          # -> track.pitlane in every race.json
 ```
 
-The track geometry (centreline, kerbs, corners, DRS zones) is built from the 2025 race laps:
-`--session 9896 --id 2025-race --label "2025 Race" --city`, which also rebuilds `data/city.json`.
+The track geometry (centreline, kerbs, corners) is built from the 2026 race laps:
+`--session 11388 --id 2026-race --label "2026 Race" --city`, which also rebuilds `data/city.json`
+(the race currently reuses the circuit geometry from the earlier 2025 build, and every session's
+`race.json` carries its own copy). OpenF1 refuses historical requests with a 401 while a live session
+is running; wait for it to finish.
 Other sessions on the same layout reuse it with `--track-from`. Races (and sprints) get a grid, start
 lights and a lap counter; practice and qualifying get a best-lap timing tower and a session clock.
 Knockout qualifying shows the Q1/Q2/Q3 clock (paused during red flags), the live elimination
