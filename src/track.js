@@ -332,7 +332,7 @@ export class Track {
           float along = fract(vTrackUv.y / 32.0);
           float pa = (along - 0.5) * 3.2; float pool = exp(-pa * pa);   // (pow() of a negative base is NaN in GLSL)
           float side = 1.0 - smoothstep(0.0, 1.0, abs(vTrackUv.x - 0.5) * 2.0) * 0.45;
-          totalEmissiveRadiance += vec3(0.07, 0.072, 0.08) * (0.55 + 1.0 * pool) * side;
+          totalEmissiveRadiance += vec3(0.085, 0.087, 0.095) * (0.85 + 0.9 * pool) * side;   // near-white under the trusses, as in the aerials
           float px = (vTrackUv.x - 0.5) * 4.0; diffuseColor.rgb *= 1.0 - 0.2 * exp(-px * px);
           // bridge zones: the deck structure blocks part of the floodlighting
           float zs = zoneShade(vTrackUv.y);

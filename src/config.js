@@ -220,7 +220,7 @@ export const RUNOFF = {
 
 // Floodlight trusses lining the circuit (track.js buildLights): spacing, truss length along the
 // track, height and reach over the barrier, lamp heads per truss.
-export const TRUSS = { every: 32, length: 14, height: 11, reach: 5.2, heads: 4 };
+export const TRUSS = { every: 32, length: 22, height: 11, reach: 5.2, heads: 7 };
 
 // DRS boards (identity.js): activation where cars opened DRS; detection is not in OpenF1, so it is
 // placed this many metres before the last corner ahead of each zone (a guess). side: +1 = right of
