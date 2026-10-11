@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { obb, toWorld } from './skyline.js';
-import { PIT_SIGN } from './config.js';
+import { PIT_SIGN, PIT_LANE } from './config.js';
 import { logoImage } from './sponsors.js';
 
 const G0 = 6.5, L1 = 11, L2 = 16;     // garage roof, office roof, Paddock Club roof (m)
@@ -148,31 +148,40 @@ function spotGlow() {
 }
 
 export function buildPitComplex(g, city, race, track) {
-  const pitPts = race.track.pit;
+  const L = track.lane;
   const fp = city.buildings.find(b => b.n === 'F1 Pit Building');
-  const out = { decks: [], setExit() {} };
-  if (!fp || pitPts.length < 4) return out;
+  const out = { decks: [], setExit: open => track.pitLaneCtl && track.pitLaneCtl.setExit(open) };
+  if (!fp || !L) return out;
   const o = obb(fp.p);
-  // lane centre beside the middle of the building; local +z faces it
+  // OSM gives the building's footprint and orientation; its front is put on the garage line of the
+  // fitted lane (pitlane.js), so the doors face the boxes where the cars actually stopped
+  const garageAt = u => { const v = L.point(u, PIT_LANE.garage); return [v.x, -v.z]; };   // map coords
   let best = null;
-  for (const p of pitPts) {
-    const d = Math.hypot(p[0] - o.cx, p[1] - o.cy);
-    if (!best || d < best.d) best = { d, p };
+  for (let u = 0; u <= L.length; u += 2) {
+    const q = garageAt(u), d = Math.hypot(q[0] - o.cx, q[1] - o.cy);
+    if (!best || d < best.d) best = { d, q };
   }
   const zdir = [Math.sin(o.a), -Math.cos(o.a)];
-  let dz = (best.p[0] - o.cx) * zdir[0] + (best.p[1] - o.cy) * zdir[1];
+  let dz = (best.q[0] - o.cx) * zdir[0] + (best.q[1] - o.cy) * zdir[1];
   const a = dz >= 0 ? o.a : o.a + Math.PI;
   dz = Math.abs(dz);
-  const front = dz - 6.8;              // garage doors stand just off the working lane
+  const front = dz;                     // garage doors on the garage line
   const len = o.len * 0.96;
   const cx = o.cx, cy = o.cy;
+  const xdir = [Math.cos(a), Math.sin(a)];
+  // building-local x of lane distance u (along the garage line)
+  const localX = u => { const q = garageAt(u); return (q[0] - cx) * xdir[0] + (q[1] - cy) * xdir[1]; };
   const y0 = track.P[track.nearest(cx, -cy).i].y - 0.18;
   const place = geo => toWorld(geo.translate(0, y0, 0), cx, cy, a);
 
-  const teams = [...new Map(race.drivers.map(d => [d.team, d.color])).entries()];
-  const bays = teams.length * 2;
-  const bayLen = (len * 0.86) / bays;
-  const x0 = -len * 0.43;
+  const colors = new Map(race.drivers.map(d => [d.team, d.color]));
+  const boxes = (L.data.boxes || []).filter(b => colors.has(b.team));
+  const teams = boxes.map(b => [b.team, colors.get(b.team)]);
+  // bay width from the box spacing (the closest pair of neighbouring teams sets it)
+  const bx = boxes.map(b => localX(b.u));
+  const gaps = bx.slice(1).map((x, i) => Math.abs(x - bx[i]));
+  const bayLen = Math.min(12, (gaps.length ? Math.min(...gaps) : 24) / 2);
+  const teamX = ti => bx[ti];
 
   const roofSlab = [];
   const shell = [], glass = [], lit = [], dark = [], white = [], accentGeos = [], boards = [], led = [], rail = [];
@@ -198,7 +207,7 @@ export function buildPitComplex(g, city, race, track) {
   teams.forEach(([name, col], ti) => {
     const c = new THREE.Color(col);
     for (let k = 0; k < 2; k++) {
-      const bx = x0 + (ti * 2 + k + 0.5) * bayLen;
+      const bx = teamX(ti) + (k - 0.5) * bayLen;
       const dw = bayLen - 1.6;
       // interior glow in the team's colour (kept under the bloom threshold so it doesn't blow out)
       accentGeos.push({ g: new THREE.BoxGeometry(dw, 4.6, 0.2).translate(bx, 2.4, front - 1.95), c: c.clone().lerp(new THREE.Color(1, 0.97, 0.9), 0.55).multiplyScalar(0.48) });
@@ -209,19 +218,19 @@ export function buildPitComplex(g, city, race, track) {
       dark.push(new THREE.BoxGeometry(dw, 0.05, 3).translate(bx, 0.05, front - 0.2));
     }
     // name board spanning the team's two garages
-    const bg = new THREE.PlaneGeometry(bayLen * 2 - 1, 1.1).translate(x0 + (ti * 2 + 1) * bayLen, G0 - 1.2, front + 0.32);
+    const bg = new THREE.PlaneGeometry(bayLen * 2 - 1, 1.1).translate(teamX(ti), G0 - 1.2, front + 0.32);
     const uv = bg.attributes.uv;
     for (let q = 0; q < uv.count; q++) uv.setY(q, (teams.length - 1 - ti + uv.getY(q)) / teams.length);
     boards.push(bg);
     // team-colour stripe along the office level above the team's garages
-    accentGeos.push({ g: new THREE.BoxGeometry(bayLen * 2 - 0.6, 0.35, 0.2).translate(x0 + (ti * 2 + 1) * bayLen, G0 + 0.9, front + 0.2), c });
+    accentGeos.push({ g: new THREE.BoxGeometry(bayLen * 2 - 0.6, 0.35, 0.2).translate(teamX(ti), G0 + 0.9, front + 0.2), c });
   });
 
   // pit-wall stands: one per team on the track side of the lane
-  const standZ = front + 6.8 + 6.2;
+  const standZ = front + PIT_LANE.garage + PIT_LANE.fast + 1.2;
   teams.forEach(([, col], ti) => {
     const c = new THREE.Color(col);
-    const bx = x0 + (ti * 2 + 1) * bayLen;
+    const bx = teamX(ti);
     dark.push(new THREE.BoxGeometry(6, 1.6, 2.2).translate(bx, 0.8, standZ));
     accentGeos.push({ g: new THREE.BoxGeometry(6.6, 0.3, 3).translate(bx, 3.3, standZ), c });
     for (const s of [-1, 1]) dark.push(new THREE.BoxGeometry(0.15, 3.2, 0.15).translate(bx + s * 3, 1.6, standZ - 1));
@@ -290,24 +299,6 @@ export function buildPitComplex(g, city, race, track) {
     map: spotGlow(), color: new THREE.Color(0.32, 0.31, 0.29), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   })));
 
-  // pit-exit light: red / green signal on a post at the end of the lane
-  const exit = pitPts[Math.max(0, pitPts.length - 4)], prev = pitPts[pitPts.length - 6] || pitPts[0];
-  const dir = new THREE.Vector2(exit[0] - prev[0], exit[1] - prev[1]).normalize();
-  const side = new THREE.Vector2(-dir.y, dir.x);   // left of travel
-  const ex = exit[0] + side.x * 6.5, ey = exit[1] + side.y * 6.5;
-  const ey0 = track.P[track.nearest(ex, -ey).i].y - 0.18;
-  const sig = new THREE.Group();
-  sig.add(new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 3.6, 8).translate(0, 1.8, 0), mats.dark));
-  sig.add(new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.6, 0.4).translate(0, 4.1, 0), mats.dark));
-  const red = new THREE.MeshBasicMaterial({ color: 0x220000 }), green = new THREE.MeshBasicMaterial({ color: 0x002200 });
-  const lampR = new THREE.Mesh(new THREE.CircleGeometry(0.22, 16), red); lampR.position.set(0, 4.5, 0.21);
-  const lampG = new THREE.Mesh(new THREE.CircleGeometry(0.22, 16), green); lampG.position.set(0, 3.75, 0.21);
-  sig.add(lampR, lampG);
-  sig.position.set(ex, ey0, -ey);
-  // face oncoming cars: local +z toward the direction cars come from
-  sig.rotation.y = Math.atan2(-dir.x, dir.y);
-  g.add(sig);
-
   // deck areas for the crowd (world space)
   const toW = (lx, lz) => {
     const v = new THREE.Vector3(lx, 0, lz).applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
@@ -317,10 +308,5 @@ export function buildPitComplex(g, city, race, track) {
   out.decks = [
     { ...bc, y: y0 + L1 + 0.7, len: len - 4, wid: 1.6, angle: a, density: 0.7, tag: 'balcony' },
   ];
-  out.setExit = (open) => {
-    red.color.setRGB(open ? 0.15 : 6, 0, 0);
-    green.color.setRGB(0, open ? 5 : 0.15, 0);
-  };
-  out.setExit(true);
   return out;
 }

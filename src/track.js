@@ -1,7 +1,8 @@
 // Circuit geometry, sampled every ~2 m from the same smooth curve the cars are positioned on.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CROWD, HAZE, GRID } from './config.js';
+import { CROWD, HAZE, GRID, PIT_LANE } from './config.js';
+import { PitLane, buildPitLane } from './pitlane.js';
 import { sponsorAtlas, boardTexture, titleSponsor, BOARD_UV_GLSL, logoImage } from './sponsors.js';
 
 const HALF = 7.0;           // half track width (m)
@@ -90,6 +91,56 @@ export class Track {
     this.zoneUniform = { value: Array.from({ length: MAX_ZONES }, () => new THREE.Vector4(-1e6, -1e6, 1, 1)) };
     // [s0, s1] spans under an overhead deck (expressway viaducts), filled in by Bridges
     this.overhead = [];
+    this.half = HALF;
+    this.initPitLane(race.track.pitlane);
+  }
+
+  // Pit lane fitted from telemetry (pitlane.js). laneD[i]: signed offset of the lane centre beside
+  // track sample i (NaN where there is no lane); pitSide: which side of the circuit it is on.
+  initPitLane(data) {
+    this.lane = data && data.center && data.center.length > 4 ? new PitLane(this, data) : null;
+    this.laneD = new Float32Array(this.n).fill(NaN);
+    if (!this.lane) { this.pitSide = 1; return; }
+    const L = this.lane;
+    for (let k = 0; k < L.n; k++) {
+      this.laneD[L.ti[k]] = L.d[k];
+      if (k) {
+        // fill the samples between consecutive lane points
+        const a = L.ti[k - 1], b = L.ti[k];
+        const span = ((b - a) % this.n + this.n) % this.n;
+        if (span > 1 && span < 20) for (let j = 1; j < span; j++) this.laneD[(a + j) % this.n] = L.d[k - 1] + (L.d[k] - L.d[k - 1]) * j / span;
+      }
+    }
+    this.pitSide = Math.sign(L.d[L.n >> 1]) || 1;
+  }
+
+  // the pit entry / exit road crosses the circuit wall at sample i on side sign(o)
+  pitGap(i, o) {
+    const d = this.laneD[((i % this.n) + this.n) % this.n];
+    return !Number.isNaN(d) && Math.sign(o) === Math.sign(d) && Math.abs(d) < PIT_LANE.wall + PIT_LANE.clear;
+  }
+
+  // sample i, offset o lies in the pit lane corridor (between the circuit wall and the garages)
+  inPitLane(i, o) {
+    const d = this.laneD[((i % this.n) + this.n) % this.n];
+    return !Number.isNaN(d) && Math.sign(o) === Math.sign(d) && Math.abs(o) > WALL - 0.7 && Math.abs(o) < Math.abs(d) + PIT_LANE.garage + 1;
+  }
+
+  // index ranges [from, to] of the wall on side sign(o), open where the pit roads cross it
+  wallRuns(o) {
+    const gap = i => this.pitGap(i, o);
+    let g0 = -1;
+    for (let i = 0; i < this.n; i++) if (gap(i)) { g0 = i; break; }
+    if (g0 < 0) return [[0, this.n]];
+    const runs = [];
+    let start = null;
+    for (let c = 1; c <= this.n; c++) {
+      const i = g0 + c;
+      if (!gap(i)) { if (start === null) start = i; }
+      else if (start !== null) { runs.push([start, i - 1]); start = null; }
+    }
+    if (start !== null) runs.push([start, g0 + this.n]);
+    return runs.filter(([a, b]) => b > a);
   }
 
   // true when sample i lies under an overhead deck (plus a margin in metres)
@@ -293,11 +344,13 @@ export class Track {
     // wall() front faces point toward +N, so the +N wall shows its boards on the back face
     const wallMat = boardWallMaterial(this.atlas, true), wallMatBack = boardWallMaterial(this.atlas, false);
     // boards keep the atlas cell's 4:1 shape on the 1.15 m wall
-    const wallL = this.wall(WALL, 1.15, 0, 0, this.n, -1 / 4.6);
-    const wallR = this.wall(-WALL, 1.15, 0, 0, this.n, 1 / 4.6);
+    // (open on the pit side where the pit entry and exit roads cross the wall line)
+    const runsL = this.wallRuns(WALL), runsR = this.wallRuns(-WALL);
+    const wallL = mergeGeometries(runsL.map(([a, b]) => this.wall(WALL, 1.15, 0, a, b, -1 / 4.6)));
+    const wallR = mergeGeometries(runsR.map(([a, b]) => this.wall(-WALL, 1.15, 0, a, b, 1 / 4.6)));
     g.add(new THREE.Mesh(wallL, wallMatBack), new THREE.Mesh(wallR, wallMat));
     const capMat = new THREE.MeshStandardMaterial({ color: 0x9aa0aa, roughness: 0.8, emissive: 0x15161a });
-    g.add(new THREE.Mesh(mergeGeometries([this.ribbon(WALL - 0.12, WALL + 0.12, 1.15), this.ribbon(-WALL - 0.12, -WALL + 0.12, 1.15)]), capMat));
+    g.add(new THREE.Mesh(mergeGeometries([...runsL.map(([a, b]) => this.ribbon(WALL - 0.12, WALL + 0.12, 1.15, a, b)), ...runsR.map(([a, b]) => this.ribbon(-WALL - 0.12, -WALL + 0.12, 1.15, a, b))]), capMat));
     const fenceTex = canvasTex(64, 64, (c, w, h) => {
       c.clearRect(0, 0, w, h);
       c.strokeStyle = 'rgba(170,180,200,0.38)'; c.lineWidth = 1;
@@ -306,12 +359,12 @@ export class Track {
         c.beginPath(); c.moveTo(i, h); c.lineTo(i + h, 0); c.stroke();
       }
     });
-    const fence = new THREE.Mesh(mergeGeometries([this.wall(WALL + 0.05, 3.0, 1.15, 0, this.n, 1 / 3), this.wall(-WALL - 0.05, 3.0, 1.15, 0, this.n, 1 / 3)]),
+    const fence = new THREE.Mesh(mergeGeometries([...runsL.map(([a, b]) => this.wall(WALL + 0.05, 3.0, 1.15, a, b, 1 / 3)), ...runsR.map(([a, b]) => this.wall(-WALL - 0.05, 3.0, 1.15, a, b, 1 / 3))]),
       new THREE.MeshBasicMaterial({ map: fenceTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, opacity: 0.3 }));
     g.add(fence);
     this.instances(g, 'post', new THREE.CylinderGeometry(0.06, 0.06, 3.1, 5).translate(0, 2.7, 0),
       new THREE.MeshStandardMaterial({ color: 0x8c929c, metalness: 0.7, roughness: 0.4 }),
-      this.every(4, [WALL + 0.1, -WALL - 0.1]));
+      this.every(4, [WALL + 0.1, -WALL - 0.1]).filter(it => !this.pitGap(it.i, it.o)));
 
     this.buildBarriers(g);
     this.buildLights(g);
@@ -320,7 +373,7 @@ export class Track {
     this.buildStartGantries(g);
     this.buildGantries(g);
     this.buildStart(g, race);
-    this.buildPit(g, race);
+    this.buildPit(g);
     this.buildLanterns(g, this.pitSide || 1);
     this.buildGrandstands(g);
     return g;
@@ -372,7 +425,7 @@ export class Track {
     const items = [];
     for (const c of this.corners) {
       const outside = -(Math.sign(this.curv[c.i]) || 1);
-      for (let k = -24; k <= 8; k += 1) items.push({ i: c.i + k, o: outside * (WALL - 0.55) });
+      for (let k = -24; k <= 8; k += 1) if (!this.pitGap(c.i + k, outside)) items.push({ i: c.i + k, o: outside * (WALL - 0.55) });
     }
     const pal = ['#d32f2f', '#1e4fd8', '#e9e9e9', '#1e4fd8'];
     this.instances(g, 'tecpro', new THREE.BoxGeometry(1.95, 1.0, 0.9).translate(0, 0.68, 0),
@@ -382,8 +435,10 @@ export class Track {
   buildLights(g) {
     // Floodlight towers every ~32 m, alternating sides, arm reaching over the barrier.
     // (none under the expressway decks: those spans are lit from the deck soffit, see viaducts.js)
+    // beside the pit lane the towers stand on the pit wall instead; none on the entry / exit roads
     const items = this.every(32, [1]).map((it, k) => ({ i: it.i, o: (k % 2 ? 1 : -1) * (WALL + 1.3) }))
-      .filter(it => !this.underDeck(it.i));
+      .filter(it => !this.underDeck(it.i) && !this.pitGap(it.i, it.o))
+      .map(it => (this.inPitLane(it.i, it.o) ? { i: it.i, o: Math.sign(it.o) * (WALL + 0.45) } : it));
     const poleGeo = new THREE.CylinderGeometry(0.22, 0.32, 11, 6).translate(0, 5.5, 0);
     const armGeo = new THREE.BoxGeometry(0.2, 0.2, 5.5).translate(0, 11, 2.75);
     this.instances(g, 'poles', mergeGeometries([poleGeo, armGeo]), new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.6, roughness: 0.5 }), items);
@@ -415,7 +470,8 @@ export class Track {
 
   buildMarshals(g) {
     // marshal posts with their green light panels, roughly every 220 m
-    const items = this.every(220, [1], 40).map((it, k) => ({ i: it.i, o: (k % 2 ? 1 : -1) * (WALL + 2.2) }));
+    const items = this.every(220, [1], 40).map((it, k) => ({ i: it.i, o: (k % 2 ? 1 : -1) * (WALL + 2.2) }))
+      .filter(it => !this.inPitLane(it.i, it.o) && !this.pitGap(it.i, it.o));
     this.instances(g, 'marshal', new THREE.BoxGeometry(2.4, 2.6, 2.0).translate(0, 1.3, -0.6),
       new THREE.MeshStandardMaterial({ color: 0xd7d9de, roughness: 0.6, emissive: 0x202226 }), items);
     this.instances(g, 'marshal-light', new THREE.BoxGeometry(1.2, 0.7, 0.1).translate(0, 3.2, 0.45),
@@ -713,50 +769,9 @@ export class Track {
     g.add(gantry);
   }
 
-  buildPit(g, race) {
-    const pit = race.track.pit;
-    if (!pit.length) return;
-    const pts = pit.map(([x, y]) => new THREE.Vector3(x, 0, -y));
-    const mid = pts[pts.length >> 1];
-    const { i } = this.nearest(mid.x, mid.z);
-    const away = new THREE.Vector3().subVectors(mid, this.P[i]).setY(0).normalize();
-    // which side of the start straight the pit lane is on (+1 = +N)
-    this.pitSide = Math.sign(this.N[0].dot(new THREE.Vector3().subVectors(pts[pts.length >> 1], this.P[0]).setY(0))) || 1;
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const N = 200, W = 5.5;
-    const pos = [], idx = [], frames = [];
-    for (let k = 0; k <= N; k++) {
-      const p = curve.getPointAt(k / N), t = curve.getTangentAt(k / N);
-      const nrm = new THREE.Vector3(-t.z, 0, t.x);
-      const { i: ci } = this.nearest(p.x, p.z);
-      const y = this.P[ci].y + 0.01;
-      frames.push({ p, t, nrm, y, side: Math.sign(nrm.dot(away)) || 1 });
-      pos.push(p.x + nrm.x * W, y, p.z + nrm.z * W, p.x - nrm.x * W, y, p.z - nrm.z * W);
-      if (k) { const a = (k - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setIndex(idx); geo.computeVertexNormals();
-    g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2a2c33, roughness: 0.8, emissive: 0x18191d, side: THREE.DoubleSide })));
-    // painted lines: white lane edges, and the blue / green bands between the fast lane (track
-    // side) and the working lane in front of the garages
-    const stripe = (o0, o1, col, lift = 0.02) => {
-      const sp = [], si = [];
-      frames.forEach((fr, k) => {
-        const a0 = o0 * fr.side, a1 = o1 * fr.side;
-        sp.push(fr.p.x + fr.nrm.x * a0, fr.y + lift, fr.p.z + fr.nrm.z * a0, fr.p.x + fr.nrm.x * a1, fr.y + lift, fr.p.z + fr.nrm.z * a1);
-        if (k) { const q = (k - 1) * 2; si.push(q, q + 2, q + 1, q + 1, q + 2, q + 3); }
-      });
-      const sg = new THREE.BufferGeometry();
-      sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
-      sg.setIndex(si); sg.computeVertexNormals();
-      g.add(new THREE.Mesh(sg, decal(new THREE.MeshStandardMaterial({ color: col, roughness: 0.7, emissive: new THREE.Color(col).multiplyScalar(0.25), side: THREE.DoubleSide }))));
-    };
-    stripe(W - 0.45, W - 0.2, 0xf2f2f2);
-    stripe(-W + 0.2, -W + 0.45, 0xf2f2f2);
-    stripe(-0.15, 0.55, 0x2f6fd6);
-    stripe(-0.85, -0.15, 0x56b947);
-    // the pit building itself is built in pit.js
+  // fitted pit lane (pitlane.js); the pit building and garages are built in pit.js
+  buildPit(g) {
+    this.pitLaneCtl = buildPitLane(this, g);
   }
 
   buildGrandstands(g) {

@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tube, billboardQuad, glowTex } from './bridges.js';
-import { COLORS } from './config.js';
+import { COLORS, PIT_LANE } from './config.js';
 
 const WALL = 10.2;           // track wall offset (matches track.js)
 const PIER_CLEAR = WALL + 4; // no pier closer than this to the centreline
@@ -216,8 +216,13 @@ export class Viaducts {
     return g;
   }
 
+  // over the circuit or the pit lane (the pit exit runs under the ECP), where no pier may stand
   overTrack(p, margin = 0) {
-    return this.track.nearest(p.x, p.z).d < WALL + 2 + margin;
+    if (this.track.nearest(p.x, p.z).d < WALL + 2 + margin) return true;
+    const L = this.track.lane;
+    if (!L) return false;
+    const reach = PIT_LANE.garage + 2 + margin;
+    return L.P.some(q => (q.x - p.x) ** 2 + (q.z - p.z) ** 2 < reach * reach);
   }
 
   // East Coast Parkway: concrete box girder with parapets, hammerhead piers, deck lamps

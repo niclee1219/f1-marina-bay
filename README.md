@@ -123,6 +123,13 @@ python3 scripts/build_data.py --session 11378 --id 2026-fp1 --label "2026 FP1" \
     --track-from data/2025-race/race.json                # reuse the race's track geometry
 ```
 
+Then refit the pit lane over every built session (it averages all pit stops, so more sessions
+make it better, and boxes are pooled per season):
+
+```bash
+python3 scripts/fit_pit_lane.py                          # -> track.pitlane in every race.json
+```
+
 The track geometry (centreline, kerbs, corners, DRS zones) is built from the 2025 race laps:
 `--session 9896 --id 2025-race --label "2025 Race" --city`, which also rebuilds `data/city.json`.
 Other sessions on the same layout reuse it with `--track-from`. Races (and sprints) get a grid, start

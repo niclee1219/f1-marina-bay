@@ -192,3 +192,12 @@ export const CAR_ZOOM = { dist: 300, max: 3 };
 // line ahead of the pole car's centre. blend: distance (m) over which a car eases from its box
 // into its telemetry position as it pulls away (and back in as it arrives).
 export const GRID = { spacing: 8, column: 2.8, poleSide: 'left', boxFront: 3.0, startAhead: 9, blend: [1.5, 70], poleFallback: 84 };
+
+// Pit lane layout across the fitted lane (src/pitlane.js), metres from the lane centre toward the
+// garages. The fitted path is taken as the fast lane; the working lane and garage line beside it are
+// standard dimensions, not measured (OpenF1 does not resolve them). wall: circuit wall offset
+// (track.js WALL); clear: how far past the wall line the lane centre must be before the wall closes
+// again (the entry / exit roads cross it before that); wallGap: lane edge to pit wall; boxRun:
+// working lane before the first / after the last box; entryLine / exitLine: white line on the
+// circuit before the entry and after the exit merge; bollards: per nose.
+export const PIT_LANE = { wall: 10.2, clear: 2.6, wallGap: 0.3, fast: 2.6, garage: 8.1, boxRun: 25, ramp: 15, entryLine: 45, exitLine: 45, bollards: 6 };
