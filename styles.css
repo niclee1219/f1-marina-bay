@@ -102,6 +102,16 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .start-lights.out .sl-msg { opacity: 1; transform: none; }
 @media (max-width: 700px) { .start-btn { bottom: 190px; font-size: 15px; padding: 11px 18px 11px 12px; gap: 10px; } .start-lights { top: 150px; } }
 
+/* clean feed: every overlay off, just the race; a faint pill brings the HUD back */
+body.clean :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap, .start-lights) { opacity: 0 !important; pointer-events: none !important; transition: opacity .35s ease; }
+:is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { transition: opacity .35s ease; }
+.hud-show {
+  position: fixed; right: 16px; bottom: 16px; z-index: 40; padding: 7px 12px; border-radius: 999px;
+  background: rgba(10, 10, 16, .55); border: 1px solid var(--line); color: var(--muted);
+  font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; opacity: .45; transition: opacity .2s;
+}
+.hud-show:hover, .hud-show:focus-visible { opacity: 1; color: var(--text); }
+
 /* the HUD waits for the opening fly-in, then fades up */
 body.intro :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { opacity: 0; pointer-events: none; }
 body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { animation: hud-in .8s ease both; }

@@ -1,9 +1,13 @@
-// Camera director: free orbit, chase, onboard, helicopter and automatic trackside "TV" cuts.
+// Camera director: free orbit, chase, onboard, helicopter and automatic trackside "TV" cuts, plus
+// two shots the automatic Director (autodirector.js) uses: the start-line dolly and the wide
+// whole-track aerial. A change of shot glides from the current view (blend) unless asked to cut.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CAMERA } from './config.js';
 
-export const MODES = ['orbit', 'tv', 'chase', 'onboard', 'heli'];
+// 'auto' is the Director (autodirector.js picking shots); the rest are camera modes here
+export const MODES = ['auto', 'orbit', 'tv', 'chase', 'onboard', 'heli'];
+const ease = k => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
 // Opening aerial shots (scene coordinates). `narrow` is used on portrait / phone screens.
 export const OVERVIEW = {
   // the overhead TV shot: from the south-east, looking north up the pit straight; SINGAPORE reads
@@ -13,13 +17,22 @@ export const OVERVIEW = {
   narrow: { pos: [624, 380, 376], target: [484, 0, -74], fov: 55 },
 };
 
-export const MODE_LABELS = { orbit: 'Free', tv: 'Broadcast', chase: 'Chase', onboard: 'Onboard', heli: 'Helicopter' };
+export const MODE_LABELS = { auto: 'Director', orbit: 'Free', tv: 'Broadcast', chase: 'Chase', onboard: 'Onboard', heli: 'Helicopter' };
+const AERIAL = new Set(['heli', 'wide', 'orbit']);
+export const isAerial = m => AERIAL.has(m);
 
 export class Director {
   // heightAt(x, z, y): height of whatever stands at (x, z); y lets overhead decks block only their own slab
   // surfaceAt(x, z): top of whatever is under the camera (roof, deck), for the free-camera near plane
   constructor(camera, dom, track, heightAt = () => 0, surfaceAt = () => 0) {
     this.surfaceAt = surfaceAt;
+    this.heightAt = heightAt;
+    // the circuit's centre and size, for the wide whole-track aerial
+    const box = new THREE.Box3().setFromPoints(track.P);
+    this.trackC = box.getCenter(new THREE.Vector3());
+    this.trackR = box.getSize(new THREE.Vector3()).setY(0).length() / 2;
+    this.wideA = 0;
+    this.blend = null;
     this.camera = camera;
     this.track = track;
     this.controls = new OrbitControls(camera, dom);
@@ -103,6 +116,7 @@ export class Director {
     s1.theta = s0.theta + Math.atan2(Math.sin(s1.theta - s0.theta), Math.cos(s1.theta - s0.theta));
     this.introMove = { t: 0, dur, done, hold: false, delay: 0, t0, t1, s0, s1 };
     this.controls.enabled = false;
+    this.blend = null;
   }
 
   stepIntro(dt) {
@@ -110,7 +124,7 @@ export class Director {
     if (m.hold) dt = 0;
     else if (m.delay > 0) { m.delay -= dt; dt = 0; }
     m.t = Math.min(m.dur, m.t + dt);
-    const k = m.t / m.dur, e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;   // ease in-out
+    const e = ease(m.t / m.dur);
     const tgt = this.controls.target.lerpVectors(m.t0, m.t1, e);
     // radius eased in log space so the descent feels like a constant zoom
     const s = new THREE.Spherical(
@@ -127,16 +141,73 @@ export class Director {
     }
   }
 
-  setMode(m) {
+  // Switch shot. blend > 0 glides from the current view over `blend` seconds (position, rotation
+  // and lens); 0 is a hard cut. Free (orbit) starts orbiting from wherever the camera is.
+  setMode(m, blend = 1.2) {
+    const prev = this.mode, cam = this.camera;
+    if (this.introMove && !this.introMove.hold) this.introMove = null;   // a new shot replaces a fly-to
     this.mode = m;
     this.controls.enabled = m === 'orbit';
     this.first = true;
     this.tvSpot = null;
+    this.tvHidden = 0;
     this.camYaw = null;
     if (m === 'orbit') {
-      this.camera.fov = 42;
-      this.camera.updateProjectionMatrix();
+      // orbit about the point the camera was looking at, so nothing jumps
+      if (prev !== 'orbit') {
+        const fwd = cam.getWorldDirection(new THREE.Vector3());
+        const dist = THREE.MathUtils.clamp(this.look.distanceTo(cam.position) || 60, 20, 400);
+        this.controls.target.copy(cam.position).addScaledVector(fwd, dist);
+        cam.up.set(0, 1, 0);
+        this.controls.update();
+      }
+      blend = 0;   // OrbitControls reads the camera back each frame, so it can't be blended over
     }
+    if (m === 'wide') {
+      // continue round the circuit from the side the camera is already on
+      const c = this.trackC;
+      this.wideA = Math.atan2(cam.position.x - c.x, cam.position.z - c.z);
+    }
+    if (m === 'dolly') this.dollyT = 0;
+    this.blend = blend > 0 && prev !== m ? { t: 0, dur: blend, pos: cam.position.clone(), q: cam.quaternion.clone(), fov: cam.fov } : null;
+  }
+
+  // ease the camera from the pose it had when the shot changed into the new shot's pose
+  applyBlend(dt) {
+    const b = this.blend, cam = this.camera;
+    if (!b) return;
+    b.t += dt;
+    const e = ease(Math.min(1, b.t / b.dur));
+    cam.position.lerpVectors(b.pos, cam.position.clone(), e);
+    cam.quaternion.copy(b.q.clone().slerp(cam.quaternion, e));
+    cam.fov = THREE.MathUtils.lerp(b.fov, cam.fov, e);
+    cam.updateProjectionMatrix();
+    if (b.t >= b.dur) this.blend = null;
+  }
+
+  // clear line of sight from a to b (buildings and overhead decks; heightAt is Infinity in a deck)
+  canSee(a, b) {
+    for (let f = 0.06; f < 0.95; f += 0.08) {
+      const x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f, z = a.z + (b.z - a.z) * f;
+      if (this.heightAt(x, z, y) > y) return false;
+    }
+    return true;
+  }
+
+  // the trackside camera to cut to for a car at p: the visible spot nearest ~130 m ahead of it
+  pickSpot(p, aim, d) {
+    const { i } = this.track.nearest(p.x, p.z);
+    const n = this.track.n, bin = this.track.bin;
+    const cands = [];
+    for (const s of this.spots) {
+      let ahead = ((s.i - i + n) % n) * bin;
+      if (ahead > n * bin / 2) ahead -= n * bin;
+      if (ahead > -60 && ahead < 300) cands.push({ s, score: Math.abs(ahead - 130) });
+    }
+    cands.sort((a, b) => a.score - b.score);
+    for (const c of cands.slice(0, 14)) if (this.canSee(c.s.p, aim)) return c.s;
+    // nothing trackside can see it (under a deck, between towers): a crane shot behind and above
+    return { i, p: p.clone().addScaledVector(d, -30).add(new THREE.Vector3(0, 28, 0)), crane: true };
   }
 
   // Near plane follows the shot: tight for cockpit views, pushed out for wide aerials so the
@@ -161,6 +232,8 @@ export class Director {
           cam.position.add(delta);
         }
         this.controls.update();
+        // a lens carried over from the previous shot eases back to the free camera's 42°
+        if (Math.abs(cam.fov - 42) > 0.05) { cam.fov += (42 - cam.fov) * (1 - Math.exp(-3 * dt)); cam.updateProjectionMatrix(); }
       }
       // near grows with the orbit distance (depth precision for aerials) but stays below the
       // camera's height above ground, so a bridge deck close to the lens is never sliced off
@@ -170,6 +243,18 @@ export class Director {
       const clearance = cam.position.y > below ? cam.position.y - below : Math.max(0, cam.position.y);
       const byHeight = clearance * F.nearHeightShare;
       this.setNear(THREE.MathUtils.clamp(Math.min(byTarget, byHeight), F.nearMin, F.nearMax));
+      return;
+    }
+    if (this.mode === 'wide') {
+      // the whole circuit from high up, slowly circling it
+      const c = this.trackC, R = this.trackR;
+      this.wideA += dt * 0.035;
+      cam.position.set(c.x + Math.sin(this.wideA) * R * 1.05, R * 0.8, c.z + Math.cos(this.wideA) * R * 1.05);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(c.x, 0, c.z);
+      if (Math.abs(cam.fov - 40) > 0.01) { cam.fov = 40; cam.updateProjectionMatrix(); }
+      this.setNear(5);
+      this.applyBlend(dt);
       return;
     }
     if (!focus) return;
@@ -231,30 +316,42 @@ export class Director {
       this.speedFactor = sp;
       this.setNear(0.03);
     } else if (this.mode === 'heli') {
-      const side = new THREE.Vector3(d.z, 0, -d.x);
+      // behind and to one side; if a deck or tower hides the car, swing round to the other side
+      if (this.first || !this.heliSide) { this.heliSide = 1; this.heliHidden = 0; }
+      const side = new THREE.Vector3(d.z, 0, -d.x).multiplyScalar(this.heliSide);
       wantPos = p.clone().addScaledVector(d, -60).addScaledVector(side, 45).add(new THREE.Vector3(0, 110, 0));
+      this.heliHidden = this.canSee(this.pos.lengthSq() ? this.pos : wantPos, p) ? 0 : this.heliHidden + dt;
+      if (this.heliHidden > 0.4) { this.heliSide *= -1; this.heliHidden = -1.5; }   // then give the swing time
       wantLook = p.clone().addScaledVector(d, 15);
       fov = 40;
       lerp = 1 - Math.pow(0.02, dt);
       this.setNear(2);
+    } else if (this.mode === 'dolly') {
+      // race start: from ahead of the leader, back away and rise as the field charges at the lens
+      this.dollyT += dt;
+      // (short and low enough to hand over before the field reaches the deck over Turn 1)
+      const k = ease(Math.min(1, this.dollyT / 6.5));
+      const pack = this.pack || p;
+      wantPos = p.clone().addScaledVector(d, 28 + 30 * k).add(new THREE.Vector3(0, 9 + 20 * k, 0));
+      wantLook = pack.clone().add(new THREE.Vector3(0, 1, 0));
+      fov = 52 - 10 * k;
+      lerp = 1 - Math.pow(0.02, dt);
+      this.setNear(0.5);
     } else if (this.mode === 'tv') {
-      // cut to the trackside spot closest ahead of the car; zoom the lens to keep it framed
-      const { i } = this.track.nearest(p.x, p.z);
-      const n = this.track.n;
-      let best = null, bestScore = Infinity;
-      for (const s of this.spots) {
-        const ahead = (s.i - i + n) % n;
-        const score = ahead < 280 / this.track.bin ? ahead : Infinity; // within ~280 m ahead
-        if (score < bestScore) { bestScore = score; best = s; }
-      }
-      if (!best) best = this.spots.reduce((a, s) => (s.p.distanceTo(p) < a.p.distanceTo(p) ? s : a));
+      // Trackside cameras: cut to the visible spot ~130 m ahead of the car and zoom to keep it framed.
+      // Cut away early when the car goes behind a building or under a deck, out of range, or the
+      // shot has run its course.
+      const aim = p.clone().add(new THREE.Vector3(0, 0.8, 0));
       this.tvSince += dt;
-      const dist = this.tvSpot ? this.tvSpot.p.distanceTo(p) : Infinity;
-      if (!this.tvSpot || (best !== this.tvSpot && (dist > 90 || this.tvSince > 7))) {
-        if (!(dist < 40 && this.tvSpot)) { this.tvSpot = best; this.tvSince = 0; this.first = true; }
+      const cur = this.tvSpot;
+      this.tvHidden = cur && this.canSee(cur.p, aim) ? 0 : (this.tvHidden || 0) + dt;
+      const dist = cur ? cur.p.distanceTo(p) : Infinity;
+      if (!cur || this.tvHidden > 0.25 || dist > 220 || (this.tvSince > 8 && dist > 80)) {
+        const next = this.pickSpot(p, aim, d);
+        if (!cur || next.i !== cur.i || next.crane !== cur.crane) { this.tvSpot = next; this.tvSince = 0; this.tvHidden = 0; this.first = true; }
       }
       wantPos = this.tvSpot.p;
-      wantLook = p.clone().add(new THREE.Vector3(0, 0.8, 0));
+      wantLook = aim;
       const dd = this.tvSpot.p.distanceTo(p);
       fov = THREE.MathUtils.clamp(2 * Math.atan(9 / Math.max(dd, 1)) * 180 / Math.PI * 2.2, 8, 60);
       lerp = 1;
@@ -268,11 +365,13 @@ export class Director {
       this.smoothFov += (fov - this.smoothFov) * (1 - Math.pow(0.05, dt));
     }
     cam.position.copy(this.pos);
+    cam.up.set(0, 1, 0);
     cam.lookAt(this.look);
     if (this.mode === 'onboard') cam.rotateZ(this.lean);
     if (Math.abs(cam.fov - this.smoothFov) > 0.01) {
       cam.fov = this.smoothFov;
       cam.updateProjectionMatrix();
     }
+    this.applyBlend(dt);
   }
 }

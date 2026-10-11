@@ -16,6 +16,7 @@ import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
 import { Crowd } from './crowd.js';
 import { Traffic } from './traffic.js';
+import { AutoDirector } from './autodirector.js';
 import { Director, MODES } from './camera.js';
 import { Cockpit } from './cockpit.js';
 import { CAMERA, HAZE } from './config.js';
@@ -141,7 +142,11 @@ async function boot() {
   };
 
   const ui = new UI(race, track, sessions, id, {
-    select: k => { state.focusK = k; if (director.mode === 'orbit') director.follow = true; },
+    select: k => {
+      state.focusK = k;
+      if (autoDir.active) autoDir.prefer(k);
+      else if (director.mode === 'orbit') director.follow = true;
+    },
     seek: t => { state.t = t; state.opts.jumped = true; state.prevToastT = null; },
     skip: s => { state.t = Math.max(0, Math.min(race.duration, state.t + s)); state.opts.jumped = true; state.prevToastT = null; },
     togglePlay,
@@ -161,16 +166,21 @@ async function boot() {
   waterFlat.position.y = 0.01; waterFlat.visible = false;
   scene.add(waterFlat);
 
+  // 'auto' hands the camera to the Director; any other mode glides there from the current view
   function setCamera(m) {
-    director.setMode(m);
     director.follow = false;
-    state.opts.onboard = m === 'onboard';
-    state.opts.realScale = m === 'onboard' || m === 'chase';
-    cockpit.root.visible = m === 'onboard';
+    if (m === 'auto') {
+      if (!autoDir.active) autoDir.start(state.t);
+    } else {
+      autoDir.stop();
+      director.setMode(m, 1.2);
+    }
     ui.setCamera(m);
   }
-  setCamera('orbit');
-  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, cars, race, track, bridges, viaducts, renderer, crowd, pit, skyline, composer };
+  const autoDir = new AutoDirector(race, director, cars.cars, k => { state.focusK = k; });
+  director.setMode('orbit', 0);
+  ui.setCamera('orbit');
+  if (location.search.includes('debug')) window.__f1 = { scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, skyline, composer };
   ui.setPlaying(state.playing);
   ui.setSpeed(1);
 
@@ -185,7 +195,8 @@ async function boot() {
       const i = order.findIndex(d => d.k === state.focusK);
       const j = Math.max(0, Math.min(order.length - 1, i + (e.key === 'ArrowUp' ? -1 : 1)));
       state.focusK = order[j].k;
-    } else if (/^[1-5]$/.test(e.key)) setCamera(MODES[+e.key - 1]);
+    } else if (/^[1-6]$/.test(e.key)) setCamera(MODES[+e.key - 1]);
+    else if (e.key === 'h' || e.key === 'H') ui.toggleClean();
     else if (e.key === 'f' || e.key === 'F') director.follow = !director.follow;
   });
 
@@ -231,6 +242,12 @@ async function boot() {
     state.opts.jumped = false;
     // simDt: replay time this frame, so the onboard spring keeps up with the car at 5x-60x
     director.update(dt, cars.cars[state.focusK], state.playing, state.playing ? dt * state.speed : dt);
+    // the cockpit replaces the focused car's body once the camera has settled into the onboard view
+    const onboard = director.mode === 'onboard' && !director.blend;
+    cockpit.root.visible = onboard;
+    state.opts.onboard = onboard;
+    state.opts.realScale = ['onboard', 'chase', 'tv', 'dolly'].includes(director.mode);
+    autoDir.update(dt, t, state.playing ? state.speed : 1);
     if (cockpit.root.visible) {
       cockpit.setTeam(race.drivers[state.focusK].color);
       cockpit.update(dt, state.playing ? dt * state.speed : 0, cars.cars[state.focusK].tel, director.yawRate || 0);
@@ -282,9 +299,10 @@ async function boot() {
   }
 
   // ---------------------------------------------------------------- start
-  // Start: races fly to the TV start shot (past the gantry, looking back down the grid at the cars)
-  // and roll from 7 s before lights out, so the five lights come on one per second and go out at
-  // the recorded start.
+  // Start hands the camera to the Director. Races fly to the TV start shot (past the gantry,
+  // looking back down the grid at the cars) and roll from 7 s before lights out, so the five
+  // lights come on one per second and go out at the recorded start; the Director takes it from
+  // there (autodirector.js).
   function begin() {
     if (state.started) return;
     state.started = true;
@@ -292,13 +310,14 @@ async function boot() {
     if (race.isRace) {
       state.t = race.race_start - 7;
       state.opts.jumped = true;
-      setCamera('orbit');
+      setCamera('auto');
+      director.setMode('orbit', 0);
       // framed from the grid itself: pole car toward mid-grid is "down the grid"
       const order = race.order(state.t);
       const pole = cars.cars[order[0].k].world, back = cars.cars[order[Math.min(9, order.length - 1)].k].world;   // P10: the back row may start from the pit lane
       const g = back.clone().sub(pole).setY(0).normalize();
       director.flyTo([pole.x - g.x * 40, pole.y + 16, pole.z - g.z * 40], [pole.x + g.x * 70, pole.y, pole.z + g.z * 70], 1.8);
-    }
+    } else setCamera('auto');
     state.playing = true;
     ui.setPlaying(true);
   }

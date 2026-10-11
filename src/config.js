@@ -164,6 +164,16 @@ export const CAMERA = {
 // Title wordmark shown in the HUD.
 export const TITLE = { word: 'SINGAPORE', sub: 'GRAND PRIX' };
 
+// The automatic Director (src/autodirector.js): shot lengths in real seconds per camera, the
+// start dolly's length, the least time between whole-track aerials, and how far ahead (race
+// seconds at 1x) it looks for an overtake to cut to.
+export const DIRECTOR = {
+  shot: { tv: [6, 10], chase: [6, 9], onboard: [6, 9], heli: [7, 10], wide: [7, 10] },
+  startDolly: 6.5,
+  wideEvery: 45,
+  lookahead: 12,
+};
+
 // City traffic (src/traffic.js): roads at least minWidth wide, kept circuitGap metres clear of the
 // circuit (closed for the race); one vehicle per `spacing` metres of road, at most `max`;
 // `buses` is the share of buses.

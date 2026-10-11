@@ -56,7 +56,7 @@ export const POSES = {
 
 export async function pose(key) {
   const f = window.__f1, p = POSES[key];
-  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '2', bubbles: true }));   // Free camera
   f.director.follow = false;
   f.camera.position.set(...p.pos);
   f.director.controls.target.set(...p.target);

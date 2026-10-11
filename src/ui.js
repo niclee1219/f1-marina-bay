@@ -393,11 +393,19 @@ export class UI {
     $('#help-btn').addEventListener('click', () => $('#help').classList.toggle('show'));
     $('#help').addEventListener('click', () => $('#help').classList.remove('show'));
     $('#tower-collapse').addEventListener('click', () => $('#tower').classList.toggle('collapsed'));
+    $('#clean-btn').addEventListener('click', () => this.toggleClean(true));
+    $('#hud-show').addEventListener('click', () => this.toggleClean(false));
   }
 
   setPlaying(p) { $('#play').classList.toggle('playing', p); $('#play').setAttribute('aria-label', p ? 'Pause' : 'Play'); }
   setSpeed(s) { document.querySelectorAll('#speeds button').forEach(b => b.classList.toggle('on', +b.dataset.s === s)); }
   setCamera(m) { document.querySelectorAll('#cams button').forEach(b => b.classList.toggle('on', b.dataset.m === m)); }
+
+  // clean feed: every overlay hidden, just the race (H, the Hide HUD button, or the Show HUD pill)
+  toggleClean(on = !document.body.classList.contains('clean')) {
+    document.body.classList.toggle('clean', on);
+    $('#hud-show').hidden = !on;
+  }
 
   // ---------------------------------------------------------------- toasts
   toasts(prevT, t) {

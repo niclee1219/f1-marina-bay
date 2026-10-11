@@ -40,6 +40,7 @@
     <span class="sb-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
     <span class="sb-label">Start race</span>
   </button>
+  <button id="hud-show" class="hud-show" hidden title="Show HUD (H)">Show HUD</button>
   <div id="start-lights" class="start-lights" aria-hidden="true">
     <div class="sl-row">
       <div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div><div class="pod"><i></i><i></i></div>
@@ -139,6 +140,8 @@
         <button id="t-drs" class="on" title="DRS zones">DRS</button>
         <button id="t-reflect" class="on" title="Water reflections">Reflections</button>
       </div>
+      <button id="clean-btn" class="ic small" aria-label="Hide HUD" title="Hide HUD, just the race (H)">
+        <svg viewBox="0 0 24 24"><path d="M2 5.3 3.3 4 20 20.7 18.7 22l-3.1-3.1c-1.1.4-2.3.6-3.6.6-5 0-9.3-3.1-11-7.5.8-2 2.1-3.7 3.8-5L2 5.3zm10 2.2c2.5 0 4.5 2 4.5 4.5 0 .6-.1 1.1-.3 1.6l2.9 2.9c1.5-1.2 2.6-2.8 3.3-4.5-1.7-4.4-6-7.5-11-7.5-1.3 0-2.5.2-3.7.6l2.6 2.6c.5-.1 1.1-.2 1.7-.2z"/></svg></button>
       <button id="help-btn" class="ic small" aria-label="Help" title="Keyboard shortcuts">?</button>
       <button id="fs" class="ic small" aria-label="Fullscreen" title="Fullscreen">
         <svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4z"/></svg></button>
@@ -149,7 +152,7 @@
     <div class="help-card">
       <h3>Controls</h3>
       <p><kbd>Space</kbd> play / pause · <kbd>←</kbd><kbd>→</kbd> seek 10 s · <kbd>↑</kbd><kbd>↓</kbd> change driver</p>
-      <p><kbd>1</kbd>–<kbd>5</kbd> camera: Free, Broadcast, Chase, Onboard, Helicopter · <kbd>F</kbd> follow focused car in Free cam</p>
+      <p><kbd>1</kbd>–<kbd>6</kbd> camera: Director (automatic), Free, Broadcast, Chase, Onboard, Helicopter · <kbd>F</kbd> follow focused car in Free cam · <kbd>H</kbd> hide / show the HUD</p>
       <p>Click a driver in the tower, the map or the 3D label to focus them. Drag to orbit, scroll to zoom, right-drag to pan.</p>
       <p class="src">Positions &amp; telemetry: OpenF1 (2025 Singapore GP race and the 2026 weekend sessions, ~3.7 Hz car location). Buildings, water &amp; parks: © OpenStreetMap contributors. Corner numbering: MultiViewer circuit data. Sponsor names are drawn as plain text wordmarks; no logos are used and no endorsement is implied. Unofficial fan visualisation.</p>
     </div>

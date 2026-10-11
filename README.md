@@ -28,8 +28,13 @@ built from real OpenStreetMap footprints.
   also a driver telemetry card with sector colours (purple, green, yellow), a minimap, race-control
   and overtake toasts, a lap-marked timeline with pit stops and yellow flags, and five start lights
   on the gantry that go out at the real lights-out time.
-- **Cameras.** Free orbit, automatic **Broadcast** cuts between trackside cameras, **Chase**, **Onboard**
-  (T-cam) and **Helicopter**.
+- **Cameras.** The **Director** (default after Start, `src/autodirector.js`) films the race like TV:
+  the grid shot, a dolly backing away from the charging field at lights out, then chase, onboard,
+  trackside, helicopter and whole-track aerials, cutting to whoever has the action (an overtake it
+  sees coming, a close fight, a pit stop, the leader). Or pick one yourself: Free orbit, **Broadcast**
+  (trackside cameras that cut away when a building or deck hides the car), **Chase**, **Onboard**
+  (cockpit) and **Helicopter**. Every change of camera glides from the current view. `H` hides the
+  HUD for a clean feed.
 - **Night look.** Floodlit asphalt with light pools, light towers, lit windows, aircraft beacons,
   water reflections, bloom and team-coloured light trails.
 - **Hand-built landmarks** (`src/skyline.js`), modelled from the reference photos in `reference/`
@@ -80,7 +85,8 @@ python3 scripts/build_loader_map.py      # -> data/map.svg
 | `Space` | Play / pause |
 | `←` / `→` | Seek ±10 s |
 | `↑` / `↓` | Focus the driver ahead / behind |
-| `1`–`5` | Camera: Free, Broadcast, Chase, Onboard, Helicopter |
+| `1`–`6` | Camera: Director, Free, Broadcast, Chase, Onboard, Helicopter |
+| `H` | Hide / show the HUD (clean feed) |
 | `F` | In Free cam, keep orbiting around the focused car |
 
 Click a driver in the tower, on the minimap or on their 3D label to focus them. Drag the timeline to
