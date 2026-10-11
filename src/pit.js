@@ -48,6 +48,58 @@ function inRing(p, x, y) {
   return inside;
 }
 
+// The rooftop SINGAPORE letters (aerial night photo, references/): one extruded letter per roof bay,
+// standing on the roof facing the track and leaning back toward the paddock, white faces on red
+// returns. The word runs along the roof and reads left to right from the grandstands across the
+// track, and from the overhead TV shot. The glyphs are a 9-letter subset of three.js's Helvetiker
+// Bold (assets/fonts/roof-letters.json), loaded after the scene is up; two merged meshes.
+const LEAN = THREE.MathUtils.degToRad(50);   // from vertical, top toward the paddock
+function buildRoofLetters(g, L, word, o) {
+  Promise.all([import('three/addons/loaders/FontLoader.js'), import('three/addons/geometries/TextGeometry.js'), fetch('assets/fonts/roof-letters.json').then(r => r.json())])
+    .then(([{ Font }, { TextGeometry }, json]) => {
+      const font = new Font(json), faces = [], sides = [];
+      const inw = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(), z = new THREE.Vector3(), m = new THREE.Matrix4();
+      // facing the building from the track, is +u to the viewer's right? then S goes at the low-u end
+      const mid = (o.at(0) + o.at(word.length - 1)) / 2;
+      const facing = u => inw.subVectors(L.point(u, 10), L.point(u, 0)).setY(0).normalize();
+      const along = L.point(mid + 5, 0).sub(L.point(mid - 5, 0));
+      const forward = right.crossVectors(facing(mid), THREE.Object3D.DEFAULT_UP).dot(along) > 0;
+      [...word].forEach((ch, k) => {
+        const geo = new TextGeometry(ch, { font, size: o.size, depth: 1.4, curveSegments: 5, bevelEnabled: false });
+        geo.computeBoundingBox();
+        const bb = geo.boundingBox;
+        geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -1.4);   // base centre, face at z = 0
+        const i = forward ? k : word.length - 1 - k;
+        const u = o.at(i);
+        facing(u);                                                     // track -> paddock
+        right.crossVectors(inw, THREE.Object3D.DEFAULT_UP).normalize();
+        up.set(0, Math.cos(LEAN), 0).addScaledVector(inw, Math.sin(LEAN));
+        z.crossVectors(right, up);                                     // face normal: toward the track, upward
+        const p = L.point(u, o.w(u), o.h);
+        m.makeBasis(right, up, z).setPosition(p);
+        geo.applyMatrix4(m);
+        // ExtrudeGeometry groups: 0 = front and back caps, 1 = side walls
+        for (const gr of geo.groups) (gr.materialIndex === 0 ? faces : sides).push(slice(geo, gr.start, gr.count));
+      });
+      const grp = new THREE.Group();
+      grp.name = 'roof-letters';
+      grp.add(new THREE.Mesh(mergeGeometries(faces), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.86, 0.85, 0.83) })));
+      grp.add(new THREE.Mesh(mergeGeometries(sides), new THREE.MeshStandardMaterial({ color: 0xd0303f, emissive: new THREE.Color(0.42, 0.04, 0.07), roughness: 0.5 })));
+      g.add(grp);
+    })
+    .catch(err => console.warn('roof letters:', err));
+}
+
+// one draw group of a non-indexed geometry, as its own geometry
+function slice(geo, start, count) {
+  const out = new THREE.BufferGeometry();
+  for (const k of ['position', 'normal']) {
+    const a = geo.attributes[k];
+    out.setAttribute(k, new THREE.Float32BufferAttribute(a.array.slice(start * 3, (start + count) * 3), 3));
+  }
+  return out;
+}
+
 export function buildPitComplex(g, city, race, track) {
   const L = track.lane;
   const out = { decks: [], setExit: open => track.pitLaneCtl && track.pitLaneCtl.setExit(open) };
@@ -73,7 +125,7 @@ export function buildPitComplex(g, city, race, track) {
     box(a, b, G - 1.6, G + d, H0 - 0.15, H0 + 0.3, white);                        // slab over the garages
     box(a, b, G + 0.8, G + d, H0 + 0.3, H1, concrete);                            // offices
     glass.push(laneBox(L, a, b, G - 1.0, G + d - 2, H1, H3));                     // hospitality suites
-    box(a, b, G - 2.0, G + d + 0.5, H3, HR, dark);                                // roof
+    box(a, b, G - 3.4, G + d + 0.5, H3, HR, dark);                                // roof, overhanging the balcony
   });
   for (let u = u0 + 1.5; u < u1 - 1.5; u += 3.0) box(u, u + 2.4, G + 0.7, G + 0.8, H0 + 1.3, H1 - 0.5, warm, lit, 0.45);   // office windows
   // balconies at both hospitality levels
@@ -169,6 +221,53 @@ export function buildPitComplex(g, city, race, track) {
     x.fillText('RACE CONTROL', w / 2, h / 2 + 4);
   });
   g.add(new THREE.Mesh(laneSign(L, rc0 + 2, rc1 - 2, G + 4.75, rh - 2.6, rh - 0.4, [0, 0, 1, 1]), new THREE.MeshBasicMaterial({ map: rcTex, side: THREE.DoubleSide })));
+
+  // ---- roof (aerial night photo, references/): dark membrane in bays, each bay framed by a raised
+  // beam with a warm light line, plant along the paddock edge, and one standing letter per bay
+  const roofTex = canvasTex(256, 256, (x, w, h) => {
+    x.fillStyle = '#25272c'; x.fillRect(0, 0, w, h);
+    for (let i = 0; i < 1400; i++) {   // membrane grain
+      const v = 30 + Math.random() * 18 | 0;
+      x.fillStyle = `rgba(${v},${v + 1},${v + 4},0.5)`; x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+    }
+    x.strokeStyle = 'rgba(70,74,82,0.9)'; x.lineWidth = 2;   // standing seams across the roof every 2 m
+    for (let y = 0; y < h; y += 64) { x.beginPath(); x.moveTo(0, y + 1); x.lineTo(w, y + 1); x.stroke(); }
+    x.strokeStyle = 'rgba(14,15,18,0.9)';                      // drainage lines along it
+    for (const fx of [0.33, 0.66]) { x.beginPath(); x.moveTo(fx * w, 0); x.lineTo(fx * w, h); x.stroke(); }
+  });
+  roofTex.wrapS = roofTex.wrapT = THREE.RepeatWrapping;
+  roofTex.repeat.set(1, 1 / 8);
+  const roofTop = L.strip(u0, u1, G - 3.4, u => G + depth(u) + 0.5, HR + 0.03, 2);
+  g.add(new THREE.Mesh(roofTop, new THREE.MeshStandardMaterial({ map: roofTex, roughness: 0.85, metalness: 0.1, emissive: 0x050608 })));
+  const letters = 'SINGAPORE';
+  const margin = 18, bay = (u1 - u0 - 2 * margin) / letters.length;
+  const dRoof = u => depth(u) + 0.5;
+  for (let i = 0; i <= letters.length; i++) {
+    const u = u0 + margin + i * bay;
+    box(u - 0.6, u + 0.6, G - 3.2, G + dRoof(u) - 0.3, HR, HR + 0.7, C(0.2, 0.21, 0.24));
+    box(u - 0.62, u + 0.62, G - 3.2, G + dRoof(u) - 0.3, HR + 0.7, HR + 0.78, C(1.3, 0.75, 0.38), lit);   // lit beam edge
+  }
+  box(u0, u1, G - 3.4, G - 3.0, HR, HR + 0.9, C(0.2, 0.21, 0.24));                                    // front parapet
+  box(u0, u1, G - 3.42, G - 2.98, HR + 0.9, HR + 0.96, C(1.3, 0.75, 0.38), lit);
+  chunks(u0, u1, (a, b, d) => box(a, b, G + d + 0.1, G + d + 0.5, HR, HR + 0.9, C(0.2, 0.21, 0.24)));    // back parapet
+  // plant along the paddock edge: plant rooms, condenser banks, duct runs (not under race control)
+  const plantTo = u1 - 28;
+  for (let u = u0 + margin + 4; u < plantTo - 10; u += 26) {
+    const d = Math.min(dRoof(u), dRoof(u + 10)), wb = G + d - 2;
+    box(u, u + 9, wb - 7, wb, HR, HR + 3.2, C(0.33, 0.34, 0.37));                                     // plant room
+    box(u - 0.1, u + 9.1, wb - 7.1, wb + 0.1, HR + 3.2, HR + 3.45, C(0.16, 0.17, 0.19));
+    for (let k = 0; k < 4; k++) for (let j = 0; j < 2; j++) {                                           // condensers
+      const cu = u + 11 + k * 2.6, cw = wb - 1.4 - j * 2.6;
+      box(cu, cu + 2.1, cw - 2.1, cw, HR, HR + 1.1, C(0.5, 0.52, 0.55));
+      box(cu + 0.3, cu + 1.8, cw - 1.8, cw - 0.3, HR + 1.1, HR + 1.14, C(0.05, 0.05, 0.06));          // fan grille
+    }
+    box(u + 9, u + 26, wb - 8.6, wb - 7.8, HR, HR + 0.9, C(0.42, 0.44, 0.47));                         // duct
+  }
+  buildRoofLetters(g, L, letters, {
+    at: i => u0 + margin + (i + 0.5) * bay,
+    w: u => G + 0.1 * dRoof(u), h: HR + 0.1,
+    size: Math.min(0.8 * bay, 0.72 * K.depth, 20),
+  });
 
   // ---- paddock: the strip between the back of the building and the next road (OSM), never over
   // a road, an OSM building or near the circuit
