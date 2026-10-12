@@ -92,7 +92,7 @@ export function buildPaddockDecor(g, track, city, race, pit) {
   const out = { decks: [] };
   const L = track.lane, pd = pit && pit.paddock, span = pit && pit.span;
   if (!L || !pd || !span) return out;
-  const G = PIT_LANE.garage, { room, nearRoad, lay, depth } = pd;
+  const G = PIT_LANE.garage, { room, nearRoad, lay, depth, used } = pd;
   const { u0, u1 } = span;
   const roomOf = u => room.find(r => u >= r.a && u < r.b);
 
@@ -221,6 +221,56 @@ export function buildPaddockDecor(g, track, city, race, pit) {
     }
   }
 
+  // ---- the paddock proper: the paved strip behind the building, between the units. Cells the units,
+  // marquees, walkways and trucks do not take get lighter paving, planters with trees, umbrellas and
+  // tables, extra marquees, hedges, lamps and a few carts; the far edge is fenced
+  const padCells = new Set();
+  const overlaps = (u, w) => used.some(r => u + S / 2 > r.a && u - S / 2 < r.b && w + S / 2 > r.w0 && w - S / 2 < r.w1);
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nw; j++) {
+      if (state[i * nw + j] !== 2) continue;
+      const { u, w } = cellPos(i, j), r = roomOf(u);
+      if (!r || r.wr - r.wb <= 6 || w < r.wb + 3 || w > r.wr - 1 || overlaps(u, w)) continue;
+      padCells.add(i * nw + j);
+      const r1 = hash(i, j, 21), r2 = hash(i, j, 22), r3 = hash(i, j, 23), v = 0.9 + 0.25 * r1;
+      paving.push(tint(quadGeo([L.point(u - S / 2, w - S / 2, 0.075), L.point(u + S / 2, w - S / 2, 0.075), L.point(u - S / 2, w + S / 2, 0.075), L.point(u + S / 2, w + S / 2, 0.075)], [0, 0, 2, 0, 0, 2, 2, 2]), C(v, v, v * 1.03)));
+      const near = (di, dj) => padCells.has((i + di) * nw + j + dj);
+      if (r2 < 0.12) marquee(u, w, 2.5, 2.5);
+      else if (r2 < 0.38) { umbrella(u - 1.4, w - 1.2, r3); umbrella(u + 1.6, w + 1.4, hash(i, j, 24)); }
+      else if (r2 < 0.64) planter(u + (r3 - 0.5) * 2, w + (r1 - 0.5) * 2, r3);
+      else if (r2 < 0.72) { box(u - S / 2 + 0.4, u + S / 2 - 0.4, w - 0.6, w + 0.6, 0, 1.0 + r1 * 0.4, green(r1)); }
+      else if (r2 < 0.76) cart(u, w, teamCols[(r3 * 99 | 0) % teamCols.length]);
+      else if (r2 < 0.82) { addTree(u + (r1 - 0.5) * 2, w + (r3 - 0.5) * 2, 1, r1); shrub(u + 1.8, w - 1.4, 0.7, green(r3)); }
+      if (i % 3 === 0 && j % 3 === 0) lamp(u + S / 2, w + S / 2);
+      void near;
+    }
+  }
+  // people between the units: a block every ~45 m along the strip, off the walkway and the units
+  const padList = [...padCells];
+  for (let n = 0; n < 7 && padList.length; n++) {
+    const c = padList[Math.floor(padList.length * (n + 0.5) / 7)], i = Math.floor(c / nw), j = c % nw;
+    const q = cellPos(i, j), p = L.point(q.u, q.w, 0.1), { t } = L.frame(q.u);
+    out.decks.push({ x: p.x, z: p.z, y: p.y, len: 16, wid: 10, angle: Math.atan2(-t.z, t.x), density: 0.1, tag: 'paddock' });
+  }
+  // string lights across the strip between lamp lattice points
+  for (let i = 0; i < nu - 3; i += 3) for (let j = 0; j < nw - 3; j += 3) {
+    if (!padCells.has(i * nw + j)) continue;
+    const a = cellPos(i, j, S / 2, S / 2);
+    for (const [di, dj] of [[3, 0], [0, 3]]) {
+      if (!padCells.has((i + di) * nw + j + dj)) continue;
+      const b = cellPos(i + di, j + dj, S / 2, S / 2);
+      for (let k = 1; k < 12; k++) { const f = k / 12, p = L.point(a.u + (b.u - a.u) * f, a.w + (b.w - a.w) * f, 5.3 - Math.sin(f * Math.PI) * 0.9); bulbs.push(p.x, p.y, p.z); }
+    }
+  }
+  // flags along the back of the strip's walkway, one per team colour
+  for (let u = u0 + 8, k = 0; u < u1 - 8; u += 20, k++) {
+    const r = roomOf(u); if (!r || r.wr - r.wb <= 6) continue;
+    const w = r.wb + 1.2;
+    box(u - 0.08, u + 0.08, w - 0.08, w + 0.08, 0, 9, steel);
+    const q = [L.point(u + 0.1, w, 8.8), L.point(u + 2.6, w + 0.4, 8.6), L.point(u + 0.1, w, 7.1), L.point(u + 2.6, w + 0.4, 7.3)];
+    flagQuads.push(tint(quadGeo(q, [0, 1, 1, 1, 0, 0, 1, 0], false), teamCols[k % teamCols.length], 1.1));
+  }
+
   // ---- fences where the dressed ground meets something blocked
   const fenceH = 2.3;
   const post = (u, w) => box(u - 0.06, u + 0.06, w - 0.06, w + 0.06, 0, fenceH + 0.1, steel);
@@ -234,11 +284,12 @@ export function buildPaddockDecor(g, track, city, race, pit) {
   };
   for (let i = 0; i < nu; i++) {
     for (let j = 0; j < nw; j++) {
-      if (state[i * nw + j] !== 1) continue;
+      if (state[i * nw + j] !== 1 && !padCells.has(i * nw + j)) continue;
       const { u, w } = cellPos(i, j), h = S / 2;
       const edge = [[-1, 0], [1, 0], [0, -1], [0, 1]];
       for (const [di, dj] of edge) {
         if (at(i + di, j + dj) !== 0) continue;
+        if (padCells.has(i * nw + j) && dj < 0) continue;   // the building side stays open
         if (hash(i * 5 + di, j * 7 + dj, 9) < 0.06) continue;   // an open gate now and then
         if (di) { const uu = u + di * h; panelW(uu, w - h, w + h); post(uu, w - h); post(uu, w + h); post(uu, w); }
         else { const ww = w + dj * h; panelU(u - h, u + h, ww); post(u - h, ww); post(u + h, ww); post(u, ww); }

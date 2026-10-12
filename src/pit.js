@@ -393,6 +393,7 @@ export function buildPitComplex(g, city, race, track) {
   const minRoom = (a, b) => Math.min(...roomAt(a, b).map(r => r.wr), Infinity);
   const backAt = (a, b) => Math.max(...roomAt(a, b).map(r => r.wb), -Infinity);
   let ti = 0, tk = 0;
+  const used = [];   // ground the units, marquees, walkways and trucks take (paddock.js dresses the rest)
   for (let a = u0 + 4; a < u1 - unitLen && (ti < teams.length || tk < teams.length); ) {
     const b = a + unitLen, wb = backAt(a, b), wr = minRoom(a, b), space = wr - wb;
     if (ti < teams.length && space >= K.unitDepth + 10) {
@@ -410,6 +411,7 @@ export function buildPitComplex(g, city, race, track) {
         tents.push(tint(laneShape(L, arch(), a + 1, b - 1, m0, m1, 2.8, 4.8), C(0.92, 0.93, 0.95)));
         box(a + 2, b - 2, m0 - 0.02, m0, 0.3, 2.4, warm, lit, 0.35);                    // lit side wall
       }
+      used.push({ a: a - 2, b: b + 2, w0: (space >= K.unitDepth + 19 ? w0 - 9.5 : w0 - 3) - 0.5, w1: w1 + 1 }, { a: a - 2, b: b + 2, w0: wb + 1, w1: wb + 7 });
       // walkway with lamps and people between the building and the units
       const wl = wb + 4;
       box(a - 2, b + 2, wb + 1.5, wb + 6.5, -0.11, -0.05, C(0.42, 0.43, 0.45));
@@ -424,6 +426,7 @@ export function buildPitComplex(g, city, race, track) {
       box(a, a + 13.6, tw - 1.25, tw + 1.25, 1.1, 4.0, col, solid, 0.75);        // trailer
       box(a + 13.9, a + 16.4, tw - 1.2, tw + 1.2, 0.9, 3.6, C(0.18, 0.19, 0.22));  // cab
       box(a + 0.5, a + 16, tw - 1.0, tw + 1.0, 0.0, 1.1, C(0.06, 0.06, 0.07));     // chassis and wheels
+      used.push({ a: a - 1, b: a + 18, w0: tw - 2, w1: tw + 2 });
       a += 18;
     } else a += STEP;
   }
@@ -464,6 +467,6 @@ export function buildPitComplex(g, city, race, track) {
   };
   out.span = { u0, u1 };
   // what the paddock dressing (paddock.js) needs to fill the ground the paddock leaves empty
-  out.paddock = { room, nearRoad, lay, depth };
+  out.paddock = { room, nearRoad, lay, depth, used };
   return out;
 }
