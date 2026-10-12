@@ -24,14 +24,39 @@
   <div id="stage"></div>
   <div id="labels"></div>
 
-  <!-- loading: the Marina Bay map (src/boot.js) with the circuit drawing in as data arrives,
-       then crossfaded into the 3D scene from the same overhead framing -->
+  <!-- loading: the Marina Bay map (src/boot.js) with the circuit drawing in as data arrives, a HUD that spins
+       up around the progress, then crossfaded into the 3D scene from the same overhead framing -->
   <div id="loader">
     <div id="ld-map" class="ld-map" aria-hidden="true"></div>
+    <canvas id="ld-live" class="ld-live" aria-hidden="true"></canvas>
+    <div class="ld-hud" aria-hidden="true">
+      <i class="br tl"></i><i class="br tr"></i><i class="br bl"></i><i class="br bx"></i>
+      <div class="ld-scan"></div>
+      <div class="ld-ticker"><div class="ld-ticker-in">
+        <span>ECU BOOT</span><span>GPS LOCK</span><span>TELEMETRY LINK 3.7 Hz</span><span>TYRE MODEL</span><span>FLOODLIGHT GRID</span><span>PIT LANE SURVEY</span><span>MARINA BAY 1.2914 N 103.8640 E</span><span>RACE CONTROL</span>
+        <span>ECU BOOT</span><span>GPS LOCK</span><span>TELEMETRY LINK 3.7 Hz</span><span>TYRE MODEL</span><span>FLOODLIGHT GRID</span><span>PIT LANE SURVEY</span><span>MARINA BAY 1.2914 N 103.8640 E</span><span>RACE CONTROL</span>
+      </div></div>
+      <div class="ld-trace"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
     <div class="ld-inner">
-      <div class="ld-brand"><span class="slash"></span><span>SINGAPORE <em>GRAND PRIX</em></span></div>
-      <div class="ld-sub">Marina Bay Street Circuit</div>
-      <div class="ld-status"><span id="ld-status">Loading telemetry</span><b id="ld-pct">0%</b></div>
+      <div class="ld-core">
+        <div class="reactor">
+          <div class="ring r1"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="57" /></svg></div>
+          <div class="ring r2"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="49" /></svg></div>
+          <div class="ring r3"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="41" /></svg></div>
+          <div class="ring r4"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="33" /><circle id="ld-arc" class="prog" cx="60" cy="60" r="33" /></svg></div>
+          <div class="core"></div>
+          <b id="ld-pct">0%</b>
+        </div>
+        <div class="ld-text">
+          <div class="ld-brand"><span class="slash"></span><span>SINGAPORE <em>GRAND PRIX</em></span></div>
+          <div class="ld-sub">Marina Bay Street Circuit</div>
+          <div class="ld-status"><span id="ld-status">Loading telemetry</span></div>
+          <div class="ld-chips" id="ld-chips">
+            <span data-at="0.3">Telemetry</span><span data-at="0.62">City</span><span data-at="0.86">Circuit</span><span data-at="0.94">Cars</span><span data-at="1">Lights</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

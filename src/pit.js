@@ -39,7 +39,7 @@ function spotGlow() {
 }
 
 // point-in-polygon on a flat [x0, y0, x1, y1, ...] OSM ring
-function inRing(p, x, y) {
+export function inRing(p, x, y) {
   let inside = false;
   for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
     const xi = p[i], yi = p[i + 1], xj = p[j], yj = p[j + 1];
@@ -94,7 +94,7 @@ function buildRoofLetters(g, L, word, o) {
 // A solid between w0(u) and w1(u) over u0..u1, h0..h1, sampled every `step` metres, so a back edge
 // that runs oblique to the lane is one smooth wall instead of a staircase of boxes. w0 / w1 are
 // numbers or functions of u. Non-indexed, flat normals, no uv (to merge with laneBox pieces).
-function laneSolid(L, u0, u1, w0, w1, h0, h1, step = 2) {
+export function laneSolid(L, u0, u1, w0, w1, h0, h1, step = 2) {
   const f0 = typeof w0 === 'function' ? w0 : () => w0, f1 = typeof w1 === 'function' ? w1 : () => w1;
   const N = Math.max(1, Math.ceil((u1 - u0) / step)), pos = [];
   const P = (u, w, h) => { const v = L.point(u, w, h); return [v.x, v.y, v.z]; };
@@ -123,7 +123,7 @@ function laneSolid(L, u0, u1, w0, w1, h0, h1, step = 2) {
 }
 
 // a unit shape (inside the -0.5..0.5 cube) bent onto the lane like laneBox
-function laneShape(L, geo, u0, u1, w0, w1, h0, h1) {
+export function laneShape(L, geo, u0, u1, w0, w1, h0, h1) {
   const g = geo.index ? geo.toNonIndexed() : geo, pos = g.attributes.position, v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
     L.point(u0 + (pos.getX(i) + 0.5) * (u1 - u0), w0 + (pos.getZ(i) + 0.5) * (w1 - w0), h0 + (pos.getY(i) + 0.5) * (h1 - h0), v);
@@ -134,7 +134,7 @@ function laneShape(L, geo, u0, u1, w0, w1, h0, h1) {
   return g;
 }
 // barrel-vault roof along x: half cylinder rising from y = -0.5 to 0.5
-const arch = () => new THREE.CylinderGeometry(0.5, 0.5, 1, 12, 1, true, 0, Math.PI).rotateZ(Math.PI / 2).scale(1, 2, 1).translate(0, -0.5, 0);
+export const arch = () => new THREE.CylinderGeometry(0.5, 0.5, 1, 12, 1, true, 0, Math.PI).rotateZ(Math.PI / 2).scale(1, 2, 1).translate(0, -0.5, 0);
 
 // one draw group of a non-indexed geometry, as its own geometry
 function slice(geo, start, count) {
@@ -463,5 +463,7 @@ export function buildPitComplex(g, city, race, track) {
     return !!r && w > G - 2 && w < Math.max(r.wb, r.wr) + 1;
   };
   out.span = { u0, u1 };
+  // what the paddock dressing (paddock.js) needs to fill the ground the paddock leaves empty
+  out.paddock = { room, nearRoad, lay, depth };
   return out;
 }

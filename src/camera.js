@@ -20,8 +20,8 @@ export const OVERVIEW = {
   narrow: { pos: [624, 380, 376], target: [484, 0, -74], fov: 55 },
 };
 
-export const MODE_LABELS = { auto: 'Broadcast', orbit: 'Free', tv: 'Trackside', chase: 'Chase', onboard: 'Onboard', heli: 'Helicopter', flyin: 'Fly-in', cable: 'Pit cable' };
-const AERIAL = new Set(['heli', 'wide', 'orbit', 'flyin', 'cable']);
+export const MODE_LABELS = { auto: 'Broadcast', orbit: 'Free', tv: 'Trackside', chase: 'Chase', onboard: 'Onboard', heli: 'Helicopter', flyin: 'Fly-in', cable: 'Pit cable', tour: 'Tour' };
+const AERIAL = new Set(['heli', 'wide', 'orbit', 'flyin', 'cable', 'tour']);
 export const isAerial = m => AERIAL.has(m);
 
 export class Director {
@@ -110,6 +110,38 @@ export class Director {
     if (this.introMove) this.introMove.hold = false;
   }
 
+  // Pre-start tour (main.js builds the shots from the pit lane): while the viewer waits at the Start
+  // button the camera cycles through them, each crossfading into the next. A shot is
+  // { dur, fov, near, pose(k, out) } where k runs 0..1 and pose sets out.pos, out.look and
+  // optionally out.up. Any other shot (setMode) ends the tour.
+  startTour(shots) {
+    if (!shots || !shots.length) return;
+    this.tour = { shots, i: 0, t: 0, out: { pos: new THREE.Vector3(), look: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0) } };
+    this.setMode('tour', 0);
+    this.tour.i = 0; this.tour.t = 0;
+  }
+
+  stepTour(dt) {
+    const T = this.tour, cam = this.camera;
+    T.t += dt;
+    let sh = T.shots[T.i];
+    if (T.t >= sh.dur) {
+      // next shot: glide from where this one ended (a blend over the first second and a half)
+      T.i = (T.i + 1) % T.shots.length; T.t = 0; sh = T.shots[T.i];
+      this.blend = { t: 0, dur: 1.8, pos: cam.position.clone(), q: cam.quaternion.clone(), fov: cam.fov };
+    }
+    const k = Math.min(1, T.t / sh.dur), o = T.out;
+    o.up.set(0, 1, 0);
+    sh.pose(k, o);
+    cam.position.copy(o.pos);
+    this.pos.copy(o.pos); this.look.copy(o.look);
+    cam.up.copy(o.up);
+    cam.lookAt(o.look);
+    if (Math.abs(cam.fov - sh.fov) > 0.01) { cam.fov += (sh.fov - cam.fov) * Math.min(1, dt * 3) || 0; cam.updateProjectionMatrix(); }
+    this.setNear(sh.near || 2);
+    this.applyBlend(dt);
+  }
+
   // Free-camera move from wherever the camera is to (pos, target), same easing as the intro.
   flyTo(pos, target, dur, done) {
     const t0 = this.controls.target.clone(), t1 = new THREE.Vector3(...target);
@@ -150,6 +182,7 @@ export class Director {
     const prev = this.mode, cam = this.camera;
     if (this.introMove && !this.introMove.hold) this.introMove = null;   // a new shot replaces a fly-to
     this.mode = m;
+    if (m !== 'tour') this.tour = null;
     this.controls.enabled = m === 'orbit';
     this.first = true;
     this.tvSpot = null;
@@ -250,6 +283,7 @@ export class Director {
       this.setNear(THREE.MathUtils.clamp(Math.min(byTarget, byHeight), F.nearMin, F.nearMax));
       return;
     }
+    if (this.mode === 'tour' && this.tour) { this.stepTour(dt); return; }
     if (this.mode === 'flyin') {
       // helicopter fly-in from Marina Bay Sands across the bay to the pit building: the camera runs along a
       // path while its aim swings from the tower's crown to the pit lane (src/config.js FLYIN)

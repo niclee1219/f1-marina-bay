@@ -251,6 +251,7 @@ export class Race {
       const on = (F[j + 3] >> 13) & 1;
       const g = { k: d.k, p, sTel: on ? wrap(U[j] / 10) : null, dTel: on ? F[j + 1] / 100 : 0 };
       if (on && F[j + 2] < 5) anchors.push(g.sTel + (p - 1) * GRID.spacing);
+      this.findPark(g, d.k, nf, L);
       cars.push(g);
     }
     if (!anchors.length) return null;
@@ -267,15 +268,41 @@ export class Race {
     };
   }
 
+  // Before the formation lap the recorded cars sit in one clump behind the line, not in their boxes.
+  // Remember where each one first appears on track (sPark, dPark) and when it has driven off by more
+  // than the blend distance (tGone): until then gridShift holds it in its own slot.
+  findPark(g, k, nf, L) {
+    const F = this.frames, U = this.framesU, base = k * nf * 4;
+    g.sPark = null; g.dPark = 0; g.tGone = -Infinity;
+    const i0 = 0;
+    if (!((F[base + 3] >> 13) & 1)) return;   // starts in the pit lane or off track: nothing to pin
+    g.sPark = U[base + i0 * 4] / 10; g.dPark = F[base + i0 * 4 + 1] / 100;
+    const lim = GRID.blend[1];
+    for (let i = i0; i < nf; i++) {
+      const j = base + i * 4;
+      let ds = U[j] / 10 - g.sPark;
+      ds -= Math.round(ds / L) * L;
+      if (!((F[j + 3] >> 13) & 1) || Math.abs(ds) > lim) { g.tGone = i / this.hz; break; }
+    }
+  }
+
   // Offset (ds, dd) that moves car k from its telemetry position into its grid box: full while it
   // sits at its recorded stop point, fading out with the distance from it, so there is no jump
   // as the car arrives from the formation lap or pulls away at the start.
   gridShift(k, t, s) {
     const G = this.grid;
-    if (!G || t < G.from || t > G.until) return null;
-    const g = G.cars[k];
-    if (g.sTel == null) return null;
-    const L = this.curve.L;
+    if (!G) return null;
+    const g = G.cars[k], L = this.curve.L;
+    if (g.sPark != null && t < g.tGone) {
+      // parked before the formation lap: held in its slot, easing into the recorded motion as it drives off
+      let dp = s - g.sPark;
+      dp -= Math.round(dp / L) * L;
+      const [a, b] = GRID.blend;
+      const x = Math.min(1, Math.max(0, (Math.abs(dp) - a) / (b - a)));
+      const w = 1 - x * x * (3 - 2 * x);
+      return w > 0 ? [w * (g.sSlot - g.sPark), w * (g.dSlot - g.dPark)] : null;
+    }
+    if (t < G.from || t > G.until || g.sTel == null) return null;
     let ds = s - g.sTel;
     ds -= Math.round(ds / L) * L;
     const [a, b] = GRID.blend;

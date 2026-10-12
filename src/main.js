@@ -13,6 +13,8 @@ import { Bridges } from './bridges.js';
 import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
 import { buildGarages } from './garages.js';
+import { buildPaddockDecor } from './paddock.js';
+import { buildTour } from './tour.js';
 import { PitCrew } from './pitcrew.js';
 import { Identity } from './identity.js';
 import { Crowd } from './crowd.js';
@@ -100,20 +102,28 @@ async function boot() {
   viaducts.build(scene);
   await step(0.92, 'Rolling out the cars');
   const pit = buildPitComplex(track.group, city, race, track);
+  await step(0.925, 'Opening the paddock club');
+  const decor = buildPaddockDecor(track.group, track, city, race, pit);   // plants, fences and plaza where the paddock leaves ground bare
+  pit.decks.push(...decor.decks);
   const garageLay = buildGarages(track.group, track, race);
   track.inPaddock = pit.inPaddock;
+  await step(0.935);
   const crew = new PitCrew(scene, race, track);
   const identity = new Identity(track, race, track.group);
+  await step(0.943, 'Setting the grid');
   const cars = new Cars(scene, race, track, bridges, reflect.texture);
   cars.garage = garageLay;   // retired cars are recovered to their own garage bay
   const lateralView = new LateralView(scene, track, cars);   // D: where the telemetry puts cars vs where they are drawn
+  await step(0.95);
   const crowd = new Crowd(scene, track, race, pit.decks);
+  await step(0.955, 'Filling the grandstands');
   const streets = new Streets(scene, city, track, elevatedRoadKeys(city));
+  await step(0.96);
   const traffic = new Traffic(scene, city, track, streets);
   const director = new Director(camera, renderer.domElement, track, (x, z, y) => (viaducts.blocks(x, y, z) ? Infinity : heightAt(x, z)),
     (x, z) => Math.max(heightAt(x, z), viaducts.topAt(x, z)));
   director.overview();
-  await step(0.96);
+  await step(0.965);
 
   // scene (MSAA on high) + bloom; the speed blur goes in between; then ACES / sRGB, the night grade
   // and vignette, and FXAA on low (post.js)
@@ -366,16 +376,27 @@ async function boot() {
   const startBtn = document.getElementById('start-btn');
   startBtn.querySelector('.sb-label').textContent = race.isRace ? 'Start race' : 'Start session';
   startBtn.addEventListener('click', () => begin());
+  // While the Start button waits the camera tours the pit building, the Flyer approach, the roof and the grid
+  // (tour.js); a touch or scroll on the scene, or any camera button, hands it to the viewer
+  const tourShots = buildTour(camera, track, city, pit.span, () => (race.isRace ? cars.cars[race.order(state.t)[0].k].world : null));
+  const stopTour = () => { if (director.mode === 'tour') setCamera('orbit'); };
+  for (const ev of ['pointerdown', 'wheel']) renderer.domElement.addEventListener(ev, stopTour, { capture: true, passive: true });
   const land = () => {
     document.body.classList.replace('intro', 'hud-in');
-    if (!state.started) startBtn.hidden = false;
+    if (!state.started) {
+      startBtn.hidden = false;
+      if (director.mode === 'orbit' && !director.blend) director.startTour(tourShots);
+    }
   };
   if (BOOT.view) director.intro(BOOT.view, INTRO_S, land);
   await step(0.98, 'Lights on');
   try { await renderer.compileAsync(scene, camera); } catch { /* compiles on first render instead */ }
   requestAnimationFrame(frame);
+  // draw a few frames behind the loader first, so texture uploads and first-use work happen out of sight
+  // and the fly-down starts on steady frames
+  for (let k = 0; k < 90 && frameN < 6; k++) await new Promise(r => setTimeout(r, 50));
   await step(1);
-  await new Promise(r => setTimeout(r, 250));   // let the line finish drawing
+  await new Promise(r => setTimeout(r, 450));   // let the line finish drawing
   BOOT.done = true;
   loader.classList.add('reveal');
   director.go();

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { CROWD } from './config.js';
 import { QUALITY } from './quality.js';
 
-const MAX_BLOCKS = 32;
+const MAX_BLOCKS = 40;
 const SKIN = ['#f1c9a5', '#e0ac85', '#c68c63', '#9c6b48', '#6f4a33', '#f5d6bd'];
 const CLOTHES = ['#f4f4f4', '#151518', '#1f2a44', '#3a3f4a', '#b91c1c', '#e5e7eb', '#0f766e', '#ca8a04', '#7c3aed', '#9ca3af', '#1d4ed8', '#ef4444'];
 
