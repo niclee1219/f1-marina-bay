@@ -131,20 +131,26 @@ export class Race {
       const last = d.laps[d.laps.length - 1];
       d.finishT = last && last[2] ? last[1] + last[2] : Infinity;
     }
-    // retirements: no classified finish and the car is stationary when the leader's race ends. dnfT
-    // is the last moment it was still moving. The feed keeps going for a while after the flag (cars
-    // get driven or carted away), so the end of the data is not a usable "final" state; compare at
-    // the leader's finish instead. null for a car still running then
+    // retirements: a car that is stationary when the leader's race ends (classified or not, some
+    // stop on the last laps). dnfT is the last moment it was still moving. The feed keeps going for
+    // a while after the flag (cars get driven or carted away), so the end of the data is not a
+    // usable final state; compare at the leader's finish instead. A car counts as stopped when its
+    // speed reads ~0, or when position and speed both match what they read at that point (each
+    // channel holds its last value once a car's feed stops, so one frozen channel alone proves
+    // nothing). null for a car still running then
     const nfr = this.duration * this.hz | 0;
     const ref = Math.min(nfr - 1, Math.round(this.raceEnd * this.hz));
     for (const d of this.drivers) {
       d.dnfT = null;
-      if (!this.isRace || d.finish != null) continue;
-      const j = i => (d.k * nfr + i) * 4 + 2;   // speed channel, km/h
-      if (this.frames[j(ref)] >= 5) continue;
+      if (!this.isRace) continue;
+      const j = i => (d.k * nfr + i) * 4, e = j(ref);
+      const stopped = i => this.frames[j(i) + 2] < 5
+        || (this.frames[j(i) + 2] === this.frames[e + 2] && ((this.frames[j(i) + 3] ^ this.frames[e + 3]) & 0x2000) === 0
+          && Math.abs(this.framesU[j(i)] - this.framesU[e]) < 5 && Math.abs(this.frames[j(i) + 1] - this.frames[e + 1]) < 50);
+      if (!stopped(ref)) continue;
       let i = ref;
-      while (i > 0 && this.frames[j(i)] < 5) i--;
-      if (i < ref - 1) d.dnfT = i / this.hz;
+      while (i > 0 && stopped(i)) i--;
+      if (i < ref - 2) d.dnfT = i / this.hz;
     }
     const tr = this.track;
     tr.n = tr.center.length;
