@@ -377,16 +377,20 @@ export class Director {
     } else if (this.mode === 'cable') {
       // pit cable cam: straight down on the pit lane from 24 m, riding along it with the car on a damped
       // wire, so the stop (crew running out, jacks, wheels off and on) reads from above
-      if (!this.cable) this.cable = p.clone();
-      this.cable.lerp(p, 1 - Math.exp(-2.4 * dt));
+      // The wire follows quickly and leads the car a little, and portrait screens (a phone) get a higher,
+      // wider view: a narrow frame would otherwise lose a car doing 80 km/h along the lane.
+      const portrait = cam.aspect < 1;
+      const lead = p.clone().addScaledVector(d, Math.min(16, speed / 3.6 * 0.35));
+      if (!this.cable) this.cable = lead.clone();
+      this.cable.lerp(lead, 1 - Math.exp(-7 * dt));
       // steeply from above and from the track side of the lane (the pit building's roof overhangs the garage side)
       const near = this.track.nearest(this.cable.x, this.cable.z);
       const away = new THREE.Vector3(this.track.P[near.i].x - this.cable.x, 0, this.track.P[near.i].z - this.cable.z);
       if (away.lengthSq() < 4) away.set(-d.z, 0, d.x); else away.normalize();
       this.cableSide = (this.cableSide || away.clone()).lerp(away, 1 - Math.exp(-3 * dt)).normalize();
-      wantPos = this.cable.clone().addScaledVector(this.cableSide, 6.5).add(new THREE.Vector3(0, 18, 0));
+      wantPos = this.cable.clone().addScaledVector(this.cableSide, portrait ? 9 : 6.5).add(new THREE.Vector3(0, portrait ? 30 : 18, 0));
       wantLook = this.cable.clone();
-      fov = 46;
+      fov = portrait ? 64 : 46;
       lerp = 1;
       this.setNear(1);
     } else if (this.mode === 'heli') {

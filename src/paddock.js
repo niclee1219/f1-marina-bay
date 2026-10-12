@@ -152,7 +152,7 @@ export function buildPaddockDecor(g, track, city, race, pit) {
     if (rnd > 0.35) { const b = L.point(u, w, 0.15); glows.push(b.x, b.y + 0.2, b.z); }   // uplighter at the trunk
   };
   const shrub = (u, w, r, col) => {
-    const geo = new THREE.IcosahedronGeometry(r, 1).toNonIndexed();
+    const geo = new THREE.IcosahedronGeometry(r, 1);
     const pos = geo.attributes.position, v = new THREE.Vector3();
     for (let k = 0; k < pos.count; k++) { L.point(u + pos.getX(k), w + pos.getZ(k), r * 0.75 + pos.getY(k) * 0.8, v); pos.setXYZ(k, v.x, v.y, v.z); }
     geo.deleteAttribute('uv'); geo.computeVertexNormals();

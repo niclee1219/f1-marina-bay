@@ -478,7 +478,9 @@ kbd { font: 700 11px var(--font); background: #2a2a33; padding: 1px 6px; border-
   .row .flags { display: none; }
   .row .gap { font-size: 10.5px; }
   .tyre { width: 15px; height: 15px; font-size: 8px; border-width: 2px; }
-  #tower:not(.expanded) .tower-list { height: calc(var(--row-h) * 10); }
+  /* ten rows show; the rest scroll (the absolutely placed rows extend the scroll area) */
+  #tower:not(.expanded) .tower-list { height: calc(var(--row-h) * 10); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  #tower:not(.expanded) .tower-list::-webkit-scrollbar { display: none; }
   #tower.collapsed .tower-list { height: calc(var(--row-h) * 3); }
   #side { top: auto; bottom: 186px; right: 8px; width: 150px; }
   #card { display: none; }
