@@ -3,6 +3,8 @@ import { TYRES } from './data.js';
 import { MODES, MODE_LABELS } from './camera.js';
 import { TITLE } from './config.js';
 
+const PHONE = matchMedia('(max-width: 760px)');
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 // rough top speed (km/h) at the rev limit in each gear, for the wheel's estimated RPM
@@ -54,6 +56,7 @@ export class UI {
     if (race.has_drs === false) {
       $('#t-drs').hidden = true;
       $('#c-drs').hidden = true;
+      $('#mi-drs').hidden = true;
     }
     document.documentElement.style.setProperty('--rows', race.drivers.length);
     $('#wx').innerHTML = `<span>AIR ${race.weather.air.toFixed(0)}°C</span><span>TRACK ${race.weather.track.toFixed(0)}°C</span><span>HUM ${race.weather.humidity.toFixed(0)}%</span>`;
@@ -186,6 +189,7 @@ export class UI {
       $('#card-team').textContent = d.team;
     }
     this.updateWheel(race.tel(k, t), k);
+    this.updateMini(k, t);
     const pos = race.order(t).findIndex(x => x.k === k) + 1;
     $('#c-pos').textContent = `P${pos}`;
     const lap = race.lap(k, t);
@@ -204,6 +208,21 @@ export class UI {
       el.textContent = last && last.s[j] ? last.s[j].toFixed(3) : '—';
       el.className = `sec ${last ? last.colours[j] : ''}`;
     }
+  }
+
+  // Phone speed readout (index.html #mini, styles.css): fed from the eased wheel values
+  updateMini(k, t) {
+    const el = this.mini || (this.mini = { root: $('#mini'), code: $('#mi-code'), pos: $('#mi-pos'), speed: $('#mi-speed'), gear: $('#mi-gear'), thr: $('#mi-thr'), brk: $('#mi-brk'), drs: $('#mi-drs'), s: {} });
+    if (!PHONE.matches) return;   // desktop: the card shows it
+    const d = this.race.drivers[k], w = this.wheel, tel = this.race.tel(k, t), set = (key, node, val) => { if (el.s[key] !== val) { el.s[key] = val; node.textContent = val; } };
+    el.root.style.setProperty('--team', d.color);
+    set('code', el.code, d.code);
+    set('pos', el.pos, `P${this.race.order(t).findIndex(x => x.k === k) + 1}`);
+    set('speed', el.speed, Math.round(w.speed));
+    set('gear', el.gear, tel.gear === 0 ? 'N' : tel.gear);
+    el.thr.style.setProperty('--v', w.thr.toFixed(2));
+    el.brk.style.setProperty('--v', w.brk.toFixed(2));
+    el.drs.classList.toggle('on', !!tel.drs);
   }
 
   // Steering-wheel dash. Telemetry is ~4 Hz, so speed, revs and pedals are eased every frame

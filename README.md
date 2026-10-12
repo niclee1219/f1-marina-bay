@@ -65,6 +65,13 @@ built from real OpenStreetMap footprints.
   multi-storey pit building has hospitality balconies, the podium over the pit lane, race control
   and one SINGAPORE sign; the paddock behind it has team hospitality units and trucks (`src/pit.js`).
   Crews and crowd density follow `?quality=low|high` (auto-low on low-power devices).
+- **Circuit dressing and light show** (`src/trackdecor.js`, `src/fireworks.js`): the whole lap is dressed
+  like the paddock: team pennant poles with bulb strings along the wall, a promenade of pavers with
+  lamps and bollards, hedges, planters, gardens and fan zones (marquees, umbrellas, lettered gateways)
+  on free ground beside the track, light arches over the straights, and trees along the streets and
+  through the parks. Fireworks (one pooled GPU particle system) run across the paddock at lights out,
+  close the race when the winner crosses the line, go up in a volley every tenth lap and now and then
+  near the camera; a light show makes the bulbs chase colours and the searchlights sweep.
 - **Singapore identity** (`src/identity.js`): the Turn 1-3 run-off painted deep blue with white and
   gold stripes and a SINGAPORE wordmark, seated grandstands along the pit straight, floodlight
   trusses, debris fencing with a top rail, corner number boards, DRS detection / activation boards

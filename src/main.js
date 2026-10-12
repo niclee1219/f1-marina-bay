@@ -14,6 +14,8 @@ import { Viaducts } from './viaducts.js';
 import { buildPitComplex } from './pit.js';
 import { buildGarages } from './garages.js';
 import { buildPaddockDecor } from './paddock.js';
+import { TrackDecor } from './trackdecor.js';
+import { Fireworks, Shows } from './fireworks.js';
 import { buildTour } from './tour.js';
 import { PitCrew } from './pitcrew.js';
 import { Identity } from './identity.js';
@@ -105,6 +107,10 @@ async function boot() {
   await step(0.925, 'Opening the paddock club');
   const decor = buildPaddockDecor(track.group, track, city, race, pit);   // plants, fences and plaza where the paddock leaves ground bare
   pit.decks.push(...decor.decks);
+  await step(0.93, 'Dressing the circuit');
+  const trackDecor = new TrackDecor(scene, track, city, pit, elevatedRoadKeys(city));   // promenade, fan zones, gardens and light show along the whole lap
+  const fireworks = new Fireworks(scene);
+  const shows = new Shows(fireworks, trackDecor, race, track, pit);
   const garageLay = buildGarages(track.group, track, race);
   track.inPaddock = pit.inPaddock;
   await step(0.935);
@@ -216,7 +222,7 @@ async function boot() {
   const autoDir = new AutoDirector(race, director, cars.cars, k => { state.focusK = k; });
   director.setMode('orbit', 0);
   ui.setCamera('orbit');
-  if (location.search.includes('debug')) window.__f1 = { reflect, cockpit, lateralView, scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, crew, identity, skyline, composer, streets, traffic };
+  if (location.search.includes('debug')) window.__f1 = { trackDecor, fireworks, shows, reflect, cockpit, lateralView, scene, camera, state, director, autoDir, cars, race, track, bridges, viaducts, renderer, crowd, pit, crew, identity, skyline, composer, streets, traffic };
   ui.setPlaying(state.playing);
   ui.setSpeed(1);
 
@@ -259,6 +265,7 @@ async function boot() {
     frameMs += (dt * 1000 - frameMs) * 0.05; frameN++;
     const refreshEvery = frameMs < 30 ? 1 : frameMs < 42 ? 2 : 4;
     // pixels per radian at the screen centre, for size-on-screen decisions (car decals)
+    const jumped = state.opts.jumped;
     state.opts.pixelScale = renderer.domElement.clientHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     cars.update(t, state.playing ? dt * state.speed : 0, camera.position, state.focusK, state.opts);
     state.opts.jumped = false;
@@ -290,6 +297,9 @@ async function boot() {
     track.setStartLights(lit);
     showStartLights(state.started && race.isRace && ls < 6.5 && ls > -2.6, lit, ls <= 0);
 
+    trackDecor.update(dt, renderer.domElement.height);
+    fireworks.update(dt, renderer.domElement.height);
+    shows.update(dt, t, state.playing, camera.position, jumped);
     water.material.uniforms.time.value += dt;
     updateCity(dt);
     skyline.update(dt);

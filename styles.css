@@ -176,8 +176,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 @media (max-width: 700px) { .start-btn { bottom: 190px; font-size: 15px; padding: 11px 18px 11px 12px; gap: 10px; } .start-lights { top: 150px; } }
 
 /* clean feed: every overlay off, just the race; a faint pill brings the HUD back */
-body.clean :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap, .start-lights) { opacity: 0 !important; pointer-events: none !important; transition: opacity .35s ease; }
-:is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { transition: opacity .35s ease; }
+body.clean :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap, #mini, .start-lights) { opacity: 0 !important; pointer-events: none !important; transition: opacity .35s ease; }
+:is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap, #mini) { transition: opacity .35s ease; }
 .hud-show {
   position: fixed; right: 16px; bottom: 16px; z-index: 40; padding: 7px 12px; border-radius: 999px;
   background: rgba(10, 10, 16, .55); border: 1px solid var(--line); color: var(--muted);
@@ -186,13 +186,13 @@ body.clean :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap
 .hud-show:hover, .hud-show:focus-visible { opacity: 1; color: var(--text); }
 
 /* the HUD waits for the opening fly-in, then fades up */
-body.intro :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { opacity: 0; pointer-events: none; }
-body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { animation: hud-in .8s ease both; }
+body.intro :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap, #mini) { opacity: 0; pointer-events: none; }
+body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap, #mini) { animation: hud-in .8s ease both; }
 @keyframes hud-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .ld-map, #loader.reveal .ld-map, .ld-live, .ld-inner, .ld-hud { transition-duration: .01s; }
   .ld-hud *, .reactor, .reactor .ring, .reactor .core, .ld-brand, .ld-sub, .ld-status { animation-duration: .01s !important; animation-iteration-count: 1 !important; }
-  body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap) { animation: none; }
+  body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minimap, #mini) { animation: none; }
 }
 
 .slash { display: inline-block; width: 14px; height: 34px; background: var(--f1-red); transform: skewX(-18deg); border-radius: 2px; flex: none; }
@@ -433,6 +433,9 @@ body.hud-in :is(#hud-top, #tower, #side, #dock, #labels, #card, #toasts, #minima
 .help-card .src { font-size: 12px; color: var(--muted); }
 kbd { font: 700 11px var(--font); background: #2a2a33; padding: 1px 6px; border-radius: 3px; border-bottom: 2px solid #111; margin: 0 1px; }
 
+/* phone speed readout: shown only at phone width (see the max-width: 760px block) */
+.mini { display: none; }
+
 /* ---------------------------------------------------------------- responsive */
 @media (max-width: 1100px) {
   #side { width: 240px; }
@@ -484,6 +487,22 @@ kbd { font: 700 11px var(--font); background: #2a2a33; padding: 1px 6px; border-
   #tower.collapsed .tower-list { height: calc(var(--row-h) * 3); }
   #side { top: auto; bottom: 186px; right: 8px; width: 150px; }
   #card { display: none; }
+  /* phone speed readout: driver, speed, gear and pedals, bottom left above the dock */
+  .mini { display: grid; position: fixed; left: 8px; bottom: 186px; z-index: 10; width: 142px; padding: 6px 9px 7px; gap: 3px; --team: #888;
+    background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--team); border-radius: 6px; backdrop-filter: blur(8px); }
+  .mi-head { display: flex; align-items: center; gap: 6px; font-weight: 900; font-size: 12px; letter-spacing: .06em; line-height: 1; }
+  .mi-code { color: var(--team); filter: brightness(1.25); }
+  .mi-pos { background: var(--text); color: var(--carbon); border-radius: 3px; padding: 1px 5px; font-size: 11px; }
+  .mi-drs { margin-left: auto; font-size: 9px; color: #4b5563; border: 1px solid #374151; border-radius: 3px; padding: 1px 4px; }
+  .mi-drs.on { color: #06150a; background: var(--green); border-color: var(--green); }
+  .mi-main { display: flex; align-items: baseline; gap: 4px; line-height: 1; }
+  .mi-speed { font-weight: 900; font-size: 34px; color: #e8f6ff; font-variant-numeric: tabular-nums; min-width: 2.3ch; text-align: right; }
+  .mi-main small { font-size: 9px; color: #6b7280; letter-spacing: .12em; }
+  .mi-gear { margin-left: auto; font-weight: 900; font-size: 22px; color: #fff; text-shadow: 0 0 10px var(--team); }
+  .mi-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .mi-bars i { display: block; height: 4px; border-radius: 2px; background: #1b1d22; transform-origin: left; position: relative; overflow: hidden; }
+  .mi-bars i::after { content: ''; position: absolute; inset: 0; transform-origin: left; transform: scaleX(var(--v, 0)); }
+  .mi-bars .thr::after { background: #2bff61; } .mi-bars .brk::after { background: #ff2a1a; }
   #minimap { height: 100px; }
   .wx { display: none; }
   #toasts { right: 8px; left: auto; bottom: 262px; width: min(240px, 60vw); }
